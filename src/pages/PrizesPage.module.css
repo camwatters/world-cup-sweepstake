@@ -347,6 +347,8 @@
   font-weight: 600;
   color: var(--text);
   font-size: 0.85rem;
+  min-width: 46px;
+  text-align: right;
 }
 
 @media (max-width: 520px) {

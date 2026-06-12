@@ -20,8 +20,9 @@ function getTier(odds) {
 
 function fmtOdds(o) {
   const n = o - 1;
-  if (n >= 1000) return (n / 1000).toFixed(1).replace(".0", "") + "k";
-  return String(n);
+  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(".0", "")}k/1`;
+  if (Number.isInteger(n)) return `${n}/1`;
+  return `${n * 2}/2`;
 }
 
 const people = [...new Set(draw.map((d) => d.person).filter(Boolean))];
@@ -52,7 +53,7 @@ export default function DrawPage() {
       <div className={styles.statsBar}>
         <div className={styles.stat}><strong>{draw.length}</strong> teams</div>
         <div className={styles.stat}><strong>{people.length}</strong> players</div>
-        <div className={styles.stat}>Favourite: <strong>{sorted[0].team}</strong> ({fmtOdds(sorted[0].odds)}/1)</div>
+        <div className={styles.stat}>Favourite: <strong>{sorted[0].team}</strong> ({fmtOdds(sorted[0].odds)})</div>
       </div>
 
       {view === "teams" ? <TeamsView /> : <PeopleView />}
@@ -87,7 +88,7 @@ function TeamCard({ entry, rank }) {
         {entry.person && <div className={styles.person}>{entry.person}</div>}
       </div>
       <div className={styles.oddsCol}>
-        <div className={styles.oddsVal}>{fmtOdds(entry.odds)}/1</div>
+        <div className={styles.oddsVal}>{fmtOdds(entry.odds)}</div>
         <div className={styles.oddsLabel}>to win</div>
       </div>
     </div>
@@ -112,7 +113,7 @@ function PeopleView() {
           <div key={person} className={styles.personCard}>
             <div className={styles.personHeader}>
               <span className={styles.personName}>{person}</span>
-              <span className={styles.personBest}>best: {fmtOdds(bestOdds)}/1</span>
+              <span className={styles.personBest}>best: {fmtOdds(bestOdds)}</span>
             </div>
             {teams
               .sort((a, b) => a.odds - b.odds)
@@ -120,7 +121,7 @@ function PeopleView() {
                 <div key={t.team} className={styles.personTeamRow}>
                   <Flag code={t.flag} size={22} />
                   <span>{t.team}</span>
-                  <span className={styles.smallOdds}>{fmtOdds(t.odds)}/1</span>
+                  <span className={styles.smallOdds}>{fmtOdds(t.odds)}</span>
                 </div>
               ))}
           </div>

@@ -5,7 +5,14 @@ import { getCached, setCache } from "../utils/cache";
 import styles from "./GroupsPage.module.css";
 
 const ESPN_STANDINGS = "https://site.api.espn.com/apis/v2/sports/soccer/fifa.world/standings?season=2026";
-const ESPN_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard";
+
+function scoreboardUrl() {
+  const fmt = (d) => d.toISOString().slice(0, 10).replace(/-/g, "");
+  const from = new Date();
+  const to = new Date(from);
+  to.setDate(to.getDate() + 7);
+  return `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?limit=50&dates=${fmt(from)}-${fmt(to)}`;
+}
 
 const CACHE_KEY_STANDINGS = "espn_standings";
 const CACHE_KEY_SCOREBOARD = "espn_scoreboard";
@@ -114,7 +121,7 @@ export default function GroupsPage() {
   useEffect(() => {
     Promise.all([
       fetchWithCache(ESPN_STANDINGS, CACHE_KEY_STANDINGS),
-      fetchWithCache(ESPN_SCOREBOARD, CACHE_KEY_SCOREBOARD),
+      fetchWithCache(scoreboardUrl(), CACHE_KEY_SCOREBOARD),
     ])
       .then(([s, sc]) => {
         setStandings(s);
@@ -158,13 +165,7 @@ export default function GroupsPage() {
       )}
 
       {tab === "fixtures" && (
-        <div className={styles.fixtures}>
-          {!scoreboard && <p className={styles.loading}>Loading…</p>}
-          {scoreboard && events.length === 0 && <p className={styles.empty}>No fixtures available yet.</p>}
-          {events.map((event) => (
-            <FixtureRow key={event.id} event={event} />
-          ))}
-        </div>
+        <FixturesTab events={events} loading={!scoreboard} />
       )}
 
       {tab === "bracket" && (
@@ -232,6 +233,31 @@ function GroupTable({ group }) {
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function FixturesTab({ events, loading }) {
+  if (loading) return <p className={styles.loading}>Loading…</p>;
+  if (events.length === 0) return <p className={styles.empty}>No fixtures available.</p>;
+
+  const byDate = {};
+  events.forEach((e) => {
+    const day = new Date(e.date).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+    if (!byDate[day]) byDate[day] = [];
+    byDate[day].push(e);
+  });
+
+  return (
+    <div className={styles.fixtures}>
+      {Object.entries(byDate).map(([day, dayEvents]) => (
+        <div key={day}>
+          <div className={styles.fixtureDay}>{day}</div>
+          {dayEvents.map((event) => (
+            <FixtureRow key={event.id} event={event} />
+          ))}
+        </div>
+      ))}
     </div>
   );
 }

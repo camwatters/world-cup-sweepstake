@@ -170,7 +170,9 @@ export function runSimulations(n = 10000, groupOverrides = {}) {
     if (last4.length) {
       const tot = last4.reduce((s,t) => s+t.p, 0);
       let r = Math.random()*tot;
-      for (const t of last4) { r-=t.p; if (r<=0) { add(t,'pott',40); break; } }
+      let pottWinner = last4[last4.length-1];
+      for (const t of last4) { r-=t.p; if (r<=0) { pottWinner=t; break; } }
+      add(pottWinner,'pott',40);
     }
 
     add(TEAMS[Math.floor(Math.random()*TEAMS.length)], 'gott', 40);

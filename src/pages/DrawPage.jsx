@@ -21,23 +21,32 @@ function applyOddsOverride(entries) {
 const draw = applyOddsOverride(rawDraw);
 const sorted = [...draw].sort((a, b) => a.odds - b.odds);
 
-const COLORS = [
-  "#e8c84a", "#c0c0c0", "#cd7f32",
-  "#6ee7b7", "#93c5fd", "#f9a8d4",
-  "#fcd34d", "#a78bfa", "#fb923c",
+const TIERS = [
+  { label: "Favourites",  max: 10 },
+  { label: "Contenders",  max: 30 },
+  { label: "Dark Horses", max: 100 },
+  { label: "Outsiders",   max: 500 },
+  { label: "Longshots",   max: Infinity },
 ];
 
-// Assign a consistent color per person
-const people = [...new Set(draw.map((d) => d.person).filter(Boolean))].sort();
-const personColor = Object.fromEntries(people.map((p, i) => [p, COLORS[i % COLORS.length]]));
+function getTier(odds) {
+  return TIERS.find((t) => odds <= t.max)?.label ?? "Longshots";
+}
+
+function fmtOdds(o) {
+  if (o >= 1000) return (o / 1000).toFixed(1).replace(".0", "") + "k";
+  return String(o);
+}
+
+const people = [...new Set(draw.map((d) => d.person).filter(Boolean))];
 
 export default function DrawPage() {
-  const [view, setView] = useState("teams"); // "teams" | "people"
+  const [view, setView] = useState("teams");
 
   return (
     <div className={styles.page}>
       <div className={styles.header}>
-        <h1>The Draw</h1>
+        <h1>World Cup <span>Sweepstake</span></h1>
         <div className={styles.toggle}>
           <button
             className={view === "teams" ? styles.active : ""}
@@ -54,33 +63,46 @@ export default function DrawPage() {
         </div>
       </div>
 
+      <div className={styles.statsBar}>
+        <div className={styles.stat}><strong>{draw.length}</strong> teams</div>
+        <div className={styles.stat}><strong>{people.length}</strong> players</div>
+        <div className={styles.stat}>Favourite: <strong>{sorted[0].team}</strong></div>
+      </div>
+
       {view === "teams" ? <TeamsView /> : <PeopleView />}
     </div>
   );
 }
 
 function TeamsView() {
-  return (
-    <div className={styles.grid}>
-      {sorted.map((entry, i) => (
-        <TeamCard key={entry.team} entry={entry} rank={i + 1} />
-      ))}
-    </div>
-  );
+  let lastTier = null;
+  const items = [];
+
+  sorted.forEach((entry, i) => {
+    const tier = getTier(entry.odds);
+    if (tier !== lastTier) {
+      items.push(<div key={`tier-${tier}`} className={styles.tierLabel}>{tier}</div>);
+      lastTier = tier;
+    }
+    items.push(<TeamCard key={entry.team} entry={entry} rank={i + 1} />);
+  });
+
+  return <div className={styles.grid}>{items}</div>;
 }
 
 function TeamCard({ entry, rank }) {
-  const color = entry.person ? personColor[entry.person] : "#64748b";
+  const isFav = entry.odds <= 10;
   return (
-    <div className={styles.card} style={{ "--accent": color }}>
-      <div className={styles.rank}>#{rank}</div>
-      <Flag code={entry.flag} size={40} />
+    <div className={`${styles.card} ${isFav ? styles.cardFav : ""}`}>
+      <div className={styles.rank}>{rank}</div>
+      <Flag code={entry.flag} size={32} />
       <div className={styles.info}>
         <div className={styles.teamName}>{entry.team}</div>
-        <div className={styles.odds}>{entry.odds}/1</div>
+        {entry.person && <div className={styles.person}>{entry.person}</div>}
       </div>
-      <div className={styles.person} style={{ background: color }}>
-        {entry.person ?? "—"}
+      <div className={styles.oddsCol}>
+        <div className={styles.oddsVal}>{fmtOdds(entry.odds)}/1</div>
+        <div className={styles.oddsLabel}>to win</div>
       </div>
     </div>
   );
@@ -103,21 +125,20 @@ function PeopleView() {
   return (
     <div className={styles.peopleGrid}>
       {sortedPeople.map(([person, teams]) => {
-        const color = person !== "Unclaimed" ? personColor[person] : "#64748b";
         const bestOdds = Math.min(...teams.map((t) => t.odds));
         return (
-          <div key={person} className={styles.personCard} style={{ "--accent": color }}>
-            <div className={styles.personHeader} style={{ borderColor: color }}>
+          <div key={person} className={styles.personCard}>
+            <div className={styles.personHeader}>
               <span className={styles.personName}>{person}</span>
-              <span className={styles.personBest}>best: {bestOdds}/1</span>
+              <span className={styles.personBest}>best: {fmtOdds(bestOdds)}/1</span>
             </div>
             {teams
               .sort((a, b) => a.odds - b.odds)
               .map((t) => (
                 <div key={t.team} className={styles.personTeamRow}>
-                  <Flag code={t.flag} size={24} />
+                  <Flag code={t.flag} size={22} />
                   <span>{t.team}</span>
-                  <span className={styles.smallOdds}>{t.odds}/1</span>
+                  <span className={styles.smallOdds}>{fmtOdds(t.odds)}/1</span>
                 </div>
               ))}
           </div>

@@ -45,6 +45,20 @@ async function fetchWithCache(url, cacheKey) {
   return data;
 }
 
+const PRIZES = [
+  { name: "Winner",                         amount: 200, top: true },
+  { name: "Runner-up",                      amount: 80,  top: true },
+  { name: "Third Place",                    amount: 40,  top: true },
+  { name: "Player of the Tournament",       amount: 40  },
+  { name: "Goal of the Tournament",         amount: 40  },
+  { name: "Worst team to exit group stage", amount: 20  },
+  { name: "Worst team to reach Last 16",    amount: 20  },
+  { name: "Worst team to reach QFs",        amount: 20  },
+];
+const TOTAL = PRIZES.reduce((s, p) => s + p.amount, 0);
+
+const KNOCKOUT_ROUNDS = ["Round of 32", "Round of 16", "Quarter-finals", "Semi-finals", "Final"];
+
 export default function GroupsPage() {
   const [standings, setStandings] = useState(null);
   const [scoreboard, setScoreboard] = useState(null);
@@ -71,23 +85,27 @@ export default function GroupsPage() {
     );
   }
 
-  if (!standings && !scoreboard) {
-    return <div className={styles.page}><p className={styles.loading}>Loading…</p></div>;
-  }
-
   const groups = standings?.children ?? [];
   const events = scoreboard?.events ?? [];
+
+  const knockoutEvents = events.filter((e) => {
+    const groupName = e.competitions?.[0]?.groups?.name ?? "";
+    return groupName !== "group-stage" && groupName !== "";
+  });
 
   return (
     <div className={styles.page}>
       <div className={styles.tabs}>
         <button className={tab === "groups" ? styles.active : ""} onClick={() => setTab("groups")}>Groups</button>
         <button className={tab === "fixtures" ? styles.active : ""} onClick={() => setTab("fixtures")}>Fixtures</button>
+        <button className={tab === "bracket" ? styles.active : ""} onClick={() => setTab("bracket")}>Bracket</button>
+        <button className={tab === "prizes" ? styles.active : ""} onClick={() => setTab("prizes")}>Prizes</button>
       </div>
 
       {tab === "groups" && (
         <div className={styles.groupsGrid}>
-          {groups.length === 0 && <p className={styles.empty}>No group data available yet.</p>}
+          {!standings && <p className={styles.loading}>Loading…</p>}
+          {groups.length === 0 && standings && <p className={styles.empty}>No group data available yet.</p>}
           {groups.map((group) => (
             <GroupTable key={group.uid ?? group.name} group={group} />
           ))}
@@ -96,12 +114,19 @@ export default function GroupsPage() {
 
       {tab === "fixtures" && (
         <div className={styles.fixtures}>
-          {events.length === 0 && <p className={styles.empty}>No fixtures available yet.</p>}
+          {!scoreboard && <p className={styles.loading}>Loading…</p>}
+          {scoreboard && events.length === 0 && <p className={styles.empty}>No fixtures available yet.</p>}
           {events.map((event) => (
             <FixtureRow key={event.id} event={event} />
           ))}
         </div>
       )}
+
+      {tab === "bracket" && (
+        <BracketTab knockoutEvents={knockoutEvents} />
+      )}
+
+      {tab === "prizes" && <PrizesTab />}
     </div>
   );
 }
@@ -212,6 +237,65 @@ function TeamSlot({ entry, team, right }) {
         {entry?.person && <span className={styles.slotOwner}>{entry.person}</span>}
       </div>
       {right && (entry ? <Flag code={entry.flag} size={24} /> : <img src={team?.logos?.[0]?.href} width={36} height={24} alt="" style={{ objectFit: "contain" }} />)}
+    </div>
+  );
+}
+
+function BracketTab({ knockoutEvents }) {
+  if (knockoutEvents.length === 0) {
+    return (
+      <div className={styles.bracketEmpty}>
+        <div className={styles.bracketEmptyIcon}>🏆</div>
+        <p className={styles.bracketEmptyTitle}>Knockout stage not started</p>
+        <p className={styles.bracketEmptyText}>The bracket will appear here once the group stage is complete.</p>
+        <div className={styles.bracketRounds}>
+          {KNOCKOUT_ROUNDS.map((round) => (
+            <div key={round} className={styles.bracketRoundPill}>{round}</div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const byRound = {};
+  knockoutEvents.forEach((e) => {
+    const round = e.competitions?.[0]?.groups?.name ?? "Unknown";
+    if (!byRound[round]) byRound[round] = [];
+    byRound[round].push(e);
+  });
+
+  return (
+    <div className={styles.bracket}>
+      {Object.entries(byRound).map(([round, events]) => (
+        <div key={round} className={styles.bracketRound}>
+          <h3 className={styles.bracketRoundTitle}>{round}</h3>
+          <div className={styles.bracketMatches}>
+            {events.map((event) => (
+              <FixtureRow key={event.id} event={event} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PrizesTab() {
+  return (
+    <div className={styles.prizesPage}>
+      <h2 className={styles.prizesTitle}>Prize Money</h2>
+      <div className={styles.prizesList}>
+        {PRIZES.map((p) => (
+          <div key={p.name} className={`${styles.prizeRow} ${p.top ? styles.top : ""}`}>
+            <span className={styles.prizeName}>{p.name}</span>
+            <span className={styles.prizeAmount}>£{p.amount}</span>
+          </div>
+        ))}
+      </div>
+      <div className={styles.prizesTotal}>
+        <span className={styles.prizesTotalLabel}>Total prize pot</span>
+        <span className={styles.prizesTotalAmount}>£{TOTAL}</span>
+      </div>
     </div>
   );
 }

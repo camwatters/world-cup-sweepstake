@@ -270,9 +270,22 @@ export default function PrizesPage() {
                         {Object.entries(PRIZE_LABELS).map(([key, label]) => {
                           const val = breakdown[key] ?? 0;
                           if (val < 0.01) return null;
+                          const teamSplit = results.personBreakdownTeam?.[name]?.[key];
+                          const splitEntries = teamSplit && Object.keys(teamSplit).length > 1
+                            ? Object.entries(teamSplit).sort(([,a],[,b]) => b-a)
+                            : null;
                           return (
                             <div key={key} className={styles.evBreakdownRow}>
-                              <span className={styles.evBreakdownLabel}>{label}</span>
+                              <div className={styles.evBreakdownLabel}>
+                                {label}
+                                {splitEntries && (
+                                  <span className={styles.evBreakdownSplit}>
+                                    {splitEntries.map(([t, v]) => (
+                                      <span key={t}><Flag code={drawLookup[t.toLowerCase()]?.flag} size={11} />{t} £{v.toFixed(2)}</span>
+                                    ))}
+                                  </span>
+                                )}
+                              </div>
                               <span className={styles.evBreakdownVal}>£{val.toFixed(2)}</span>
                             </div>
                           );

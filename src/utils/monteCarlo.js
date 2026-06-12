@@ -137,11 +137,13 @@ function gottGames(round) {
 export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null) {
   const personTotal = {};
   const personBreakdown = {};
+  const personBreakdownTeam = {};
   const teamTotal = {};
   const people = [...new Set(TEAMS.map(t => t.person).filter(Boolean))];
   people.forEach(p => {
     personTotal[p] = 0;
     personBreakdown[p] = Object.fromEntries(PRIZE_KEYS.map(k => [k, 0]));
+    personBreakdownTeam[p] = {};
   });
   TEAMS.forEach(t => { teamTotal[t.team] = 0; });
 
@@ -220,7 +222,14 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     }
 
     const add = (team, key, amt) => {
-      if (team?.person) { personTotal[team.person]+=amt; personBreakdown[team.person][key]+=amt; teamTotal[team.team]+=amt; }
+      if (team?.person) {
+        personTotal[team.person] += amt;
+        personBreakdown[team.person][key] += amt;
+        teamTotal[team.team] += amt;
+        const pt = personBreakdownTeam[team.person];
+        if (!pt[key]) pt[key] = {};
+        pt[key][team.team] = (pt[key][team.team] ?? 0) + amt;
+      }
     };
     const byExit = r => TEAMS.filter(t => exit[t.team]===r);
     const worst = ts => ts.length ? ts.reduce((a,b) => a.odds>b.odds?a:b) : null;
@@ -256,9 +265,9 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
       }
       if (gottWinner) add(gottWinner, 'gott', 40);
     }
-    add(worst(byExit('group')), 'worstGroup', 20);
-    add(worst(byExit('r32')),   'worstL16', 20);
-    add(worst(byExit('r16')),   'worstQF', 20);
+    add(worst(byExit('r32')), 'worstGroup', 20);
+    add(worst(byExit('r16')), 'worstL16', 20);
+    add(worst(byExit('qf')),  'worstQF', 20);
 
     const worstOverall = TEAMS.reduce((best,t) => {
       const s=groupRank[t.team]; if(!s) return best;
@@ -275,6 +284,11 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     personEV: Object.fromEntries(Object.entries(personTotal).map(([p,v]) => [p, +(v/n).toFixed(2)])),
     personBreakdown: Object.fromEntries(Object.entries(personBreakdown).map(([p,d]) => [
       p, Object.fromEntries(Object.entries(d).map(([k,v]) => [k, +(v/n).toFixed(2)]))
+    ])),
+    personBreakdownTeam: Object.fromEntries(Object.entries(personBreakdownTeam).map(([p,keys]) => [
+      p, Object.fromEntries(Object.entries(keys).map(([k,teams]) => [
+        k, Object.fromEntries(Object.entries(teams).map(([t,v]) => [t, +(v/n).toFixed(2)]))
+      ]))
     ])),
     teamEV: Object.fromEntries(Object.entries(teamTotal).map(([t,v]) => [t, +(v/n).toFixed(2)])),
   };

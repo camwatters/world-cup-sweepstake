@@ -3,22 +3,7 @@ import { draw as rawDraw } from "../data/draw";
 import Flag from "../components/Flag";
 import styles from "./DrawPage.module.css";
 
-function applyOddsOverride(entries) {
-  try {
-    const override = JSON.parse(localStorage.getItem("manual_odds_override") ?? "{}");
-    if (!Object.keys(override).length) return entries;
-    return entries.map((e) => {
-      const key = Object.keys(override).find(
-        (k) => k.toLowerCase() === e.team.toLowerCase()
-      );
-      return key ? { ...e, odds: override[key] } : e;
-    });
-  } catch {
-    return entries;
-  }
-}
-
-const draw = applyOddsOverride(rawDraw);
+const draw = rawDraw;
 const sorted = [...draw].sort((a, b) => a.odds - b.odds);
 
 const TIERS = [

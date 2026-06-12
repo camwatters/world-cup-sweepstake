@@ -246,24 +246,19 @@ export default function PrizesPage() {
                       <span className={styles.evRank}>{rank}</span>
                       <div className={styles.evPerson}>
                         <span className={styles.evName}>{name}</span>
+                        <div className={styles.evTeams}>
+                          {teams.map(t => (
+                            <span key={t.team} className={styles.evTeam}>
+                              <Flag code={t.flag} size={14} />
+                              {t.team}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                       <div className={styles.evRight}>
-                        <div className={styles.evAmountBlock}>
-                          <span className={`${styles.evAmount} ${above ? styles.evAmountGold : ""}`}>
-                            £{ev.toFixed(2)}
-                          </span>
-                          {teams.length > 1 && results?.teamEV && (
-                            <span className={styles.evTeamSplit}>
-                              ({teams.map((t, i) => (
-                                <span key={t.team}>
-                                  <Flag code={t.flag} size={11} />
-                                  £{(results.teamEV[t.team] ?? 0).toFixed(2)}
-                                  {i < teams.length - 1 ? " · " : ""}
-                                </span>
-                              ))})
-                            </span>
-                          )}
-                        </div>
+                        <span className={`${styles.evAmount} ${above ? styles.evAmountGold : ""}`}>
+                          £{ev.toFixed(2)}
+                        </span>
                         <span className={styles.evChevron}>{isOpen ? "▲" : "▼"}</span>
                       </div>
                     </div>

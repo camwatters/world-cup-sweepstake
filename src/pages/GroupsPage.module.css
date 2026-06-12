@@ -405,14 +405,14 @@
 .bracketMatches {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 5px;
 }
 
 .staticMatch {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px 16px;
+  border-radius: 8px;
+  padding: 7px 12px;
   transition: border-color 0.15s;
 }
 
@@ -421,20 +421,20 @@
 }
 
 .staticMeta {
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: var(--muted);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .staticTeams {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .staticTeam {
   flex: 1;
-  font-size: 0.88rem;
+  font-size: 0.82rem;
   font-weight: 600;
   color: var(--text);
 }
@@ -459,7 +459,7 @@
 .staticSlot {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex: 1;
 }
 
@@ -468,16 +468,16 @@
 }
 
 .staticSub {
-  font-size: 0.68rem;
+  font-size: 0.64rem;
   color: var(--muted);
-  margin-top: 1px;
+  margin-top: 0;
 }
 
 .staticOwner {
-  font-size: 0.68rem;
+  font-size: 0.64rem;
   color: var(--accent);
   font-weight: 600;
-  margin-top: 1px;
+  margin-top: 0;
 }
 
 .tentative {

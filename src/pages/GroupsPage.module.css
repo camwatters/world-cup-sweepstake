@@ -436,3 +436,20 @@
   margin: 0;
   padding: 12px 0;
 }
+
+.staticSlot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.staticSlotRight {
+  flex-direction: row-reverse;
+}
+
+.staticSub {
+  font-size: 0.68rem;
+  color: var(--muted);
+  margin-top: 1px;
+}

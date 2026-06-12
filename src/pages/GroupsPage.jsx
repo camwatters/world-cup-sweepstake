@@ -45,7 +45,41 @@ async function fetchWithCache(url, cacheKey) {
   return data;
 }
 
-const KNOCKOUT_ROUNDS = ["Round of 32", "Round of 16", "Quarter-finals", "Semi-finals", "Final"];
+function getStats(entry) {
+  return Object.fromEntries((entry.stats ?? []).map((s) => [s.name, s.value]));
+}
+
+function sortEntries(entries) {
+  return [...entries].sort((a, b) => {
+    const sa = getStats(a), sb = getStats(b);
+    return (sb.points ?? 0) - (sa.points ?? 0)
+      || (sb.pointDifferential ?? 0) - (sa.pointDifferential ?? 0)
+      || (sb.pointsFor ?? sb.goalsScored ?? 0) - (sa.pointsFor ?? sa.goalsScored ?? 0);
+  });
+}
+
+function computeQualifiers(groups) {
+  const winners = {}, runnersUp = {}, allThirds = [];
+  groups.forEach((group) => {
+    const letter = (group.name ?? "").replace("Group ", "").trim();
+    if (!letter) return;
+    const sorted = sortEntries(group.standings?.entries ?? []);
+    if (sorted[0]) winners[letter] = sorted[0].team?.displayName ?? "";
+    if (sorted[1]) runnersUp[letter] = sorted[1].team?.displayName ?? "";
+    if (sorted[2]) {
+      const st = getStats(sorted[2]);
+      allThirds.push({
+        group: letter,
+        name: sorted[2].team?.displayName ?? "",
+        points: st.points ?? 0,
+        gd: st.pointDifferential ?? 0,
+        gf: st.pointsFor ?? st.goalsScored ?? 0,
+      });
+    }
+  });
+  allThirds.sort((a, b) => b.points - a.points || b.gd - a.gd || b.gf - a.gf);
+  return { winners, runnersUp, best8thirds: allThirds.slice(0, 8).map((t) => t.name) };
+}
 
 // Static bracket from FIFA schedule (teams TBD after group stage, June 26+)
 const R32_SCHEDULE = [
@@ -130,7 +164,7 @@ export default function GroupsPage() {
       )}
 
       {tab === "bracket" && (
-        <BracketTab knockoutEvents={knockoutEvents} />
+        <BracketTab knockoutEvents={knockoutEvents} qualifiers={computeQualifiers(groups)} />
       )}
     </div>
   );
@@ -250,7 +284,20 @@ function TeamSlot({ entry, team, right }) {
   );
 }
 
-function BracketTab({ knockoutEvents }) {
+function resolveSlot(label, qualifiers) {
+  const { winners, runnersUp, best8thirds } = qualifiers;
+  const winM = label.match(/^Winner Group ([A-L])$/);
+  if (winM) return { label, team: winners[winM[1]] || null };
+  const runM = label.match(/^Runner-up Group ([A-L])$/);
+  if (runM) return { label, team: runnersUp[runM[1]] || null };
+  if (label.startsWith("Best 3rd")) {
+    const count = best8thirds.length;
+    return { label, team: count >= 8 ? "(TBD from 3rd)" : `(best 8 of 12 thirds, ${count} groups done)`, muted: true };
+  }
+  return { label, team: null };
+}
+
+function BracketTab({ knockoutEvents, qualifiers }) {
   if (knockoutEvents.length > 0) {
     const byRound = {};
     knockoutEvents.forEach((e) => {
@@ -282,16 +329,34 @@ function BracketTab({ knockoutEvents }) {
       <div className={styles.bracketRound}>
         <h3 className={styles.bracketRoundTitle}>Round of 32</h3>
         <div className={styles.bracketMatches}>
-          {R32_SCHEDULE.map((m) => (
-            <div key={`${m.date}-${m.home}`} className={styles.staticMatch}>
-              <div className={styles.staticMeta}>{m.date} · {m.venue}</div>
-              <div className={styles.staticTeams}>
-                <span className={styles.staticTeam}>{m.home}</span>
-                <span className={styles.staticVs}>vs</span>
-                <span className={styles.staticTeam}>{m.away}</span>
+          {R32_SCHEDULE.map((m) => {
+            const home = resolveSlot(m.home, qualifiers);
+            const away = resolveSlot(m.away, qualifiers);
+            const homeEntry = home.team ? findEntry(home.team) : null;
+            const awayEntry = away.team ? findEntry(away.team) : null;
+            return (
+              <div key={`${m.date}-${m.home}`} className={styles.staticMatch}>
+                <div className={styles.staticMeta}>{m.date} · {m.venue}</div>
+                <div className={styles.staticTeams}>
+                  <div className={styles.staticSlot}>
+                    {homeEntry && <Flag code={homeEntry.flag} size={18} />}
+                    <div>
+                      <div className={styles.staticTeam}>{home.team || home.label}</div>
+                      {home.team && <div className={styles.staticSub}>{home.label}</div>}
+                    </div>
+                  </div>
+                  <span className={styles.staticVs}>vs</span>
+                  <div className={`${styles.staticSlot} ${styles.staticSlotRight}`}>
+                    <div style={{ textAlign: "right" }}>
+                      <div className={styles.staticTeam}>{away.team || away.label}</div>
+                      {away.team && <div className={styles.staticSub}>{away.label}</div>}
+                    </div>
+                    {awayEntry && <Flag code={awayEntry.flag} size={18} />}
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
       <div className={styles.bracketRound}>

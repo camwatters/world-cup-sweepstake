@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { draw } from "../data/draw";
 import Flag from "../components/Flag";
 import { runSimulations } from "../utils/monteCarlo";
@@ -10,8 +10,8 @@ const PRIZES = [
   { name: "Runner-up",                           amount: 80,  top: true },
   { name: "Third Place",                         amount: 40,  top: true },
   { name: "Player of the Tournament",            amount: 40  },
-  { name: "Goal of the Tournament",              amount: 40  },
-  { name: "Worst Team Overall",                  amount: 20  },
+  { name: "Goal of the Tournament",              amount: 40,  currentKey: "gott" },
+  { name: "Worst Team Overall",                  amount: 20,  currentKey: "worstOverall" },
   { name: "Worst Team to exit Group Stage",      amount: 20  },
   { name: "Worst Team to reach Last 16",         amount: 20  },
   { name: "Worst Team to reach Quarter-Finals",  amount: 20  },
@@ -56,6 +56,27 @@ function resolveEspnTeam(espnName) {
   return null;
 }
 
+function computeWorstTeam(standings) {
+  const groups = standings?.children ?? standings?.standings?.groups ?? [];
+  let worst = null;
+  for (const group of groups) {
+    const entries = group.standings?.entries ?? [];
+    const getStats = e => Object.fromEntries((e.stats ?? []).map(s => [s.name, s.value]));
+    for (const entry of entries) {
+      const st = getStats(entry);
+      if ((st.gamesPlayed ?? 0) === 0) continue;
+      const teamName = resolveEspnTeam(entry.team?.displayName ?? "");
+      if (!teamName) continue;
+      const pts = st.points ?? 0;
+      const gd = st.pointDifferential ?? 0;
+      if (!worst || pts < worst.pts || (pts === worst.pts && gd < worst.gd)) {
+        worst = { teamName, pts, gd };
+      }
+    }
+  }
+  return worst ? (drawLookup[worst.teamName.toLowerCase()] ?? null) : null;
+}
+
 function buildGroupOverrides(standings) {
   const overrides = {};
   const groups = standings?.children ?? standings?.standings?.groups ?? [];
@@ -88,29 +109,53 @@ draw.forEach(e => {
   byPerson[k].push(e);
 });
 
+// Hardcoded current holders (manually updated)
+const MANUAL_CURRENT = {
+  gott: draw.find(t => t.team === "South Korea"),
+};
+
 export default function PrizesPage() {
-  const [results, setResults] = useState(null);
-  const [running, setRunning] = useState(false);
+  const [results, setResults]       = useState(null);
+  const [running, setRunning]       = useState(false);
   const [lockedCount, setLockedCount] = useState(null);
-  const [expanded, setExpanded] = useState(null);
+  const [expanded, setExpanded]     = useState(null);
+  const [worstTeam, setWorstTeam]   = useState(null);
+  const [standingsRef, setStandingsRef] = useState(null);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        let s = getCached(CACHE_KEY, TTL.STANDINGS);
+        if (!s) {
+          const res = await fetch(ESPN_STANDINGS);
+          if (res.ok) { s = await res.json(); setCache(CACHE_KEY, s); }
+        }
+        if (s) { setStandingsRef(s); setWorstTeam(computeWorstTeam(s)); }
+      } catch {}
+    }
+    load();
+  }, []);
+
+  const currently = {
+    gott: MANUAL_CURRENT.gott,
+    worstOverall: worstTeam,
+  };
 
   async function runSim() {
     setRunning(true);
     setExpanded(null);
-
     let groupOverrides = {};
     try {
-      let standings = getCached(CACHE_KEY, TTL.STANDINGS);
-      if (!standings) {
+      let s = standingsRef ?? getCached(CACHE_KEY, TTL.STANDINGS);
+      if (!s) {
         const res = await fetch(ESPN_STANDINGS);
-        if (res.ok) { standings = await res.json(); setCache(CACHE_KEY, standings); }
+        if (res.ok) { s = await res.json(); setCache(CACHE_KEY, s); }
       }
-      if (standings) {
-        groupOverrides = buildGroupOverrides(standings);
+      if (s) {
+        groupOverrides = buildGroupOverrides(s);
         setLockedCount(Object.keys(groupOverrides).length);
       }
-    } catch { /* fall back to odds-only */ }
-
+    } catch {}
     setTimeout(() => {
       const result = runSimulations(10000, groupOverrides);
       setResults(result);
@@ -133,14 +178,27 @@ export default function PrizesPage() {
     <div className={styles.page}>
       <h1 className={styles.title}>Prize Money</h1>
       <div className={styles.list}>
-        {PRIZES.map((p, i) => (
-          <div key={p.name} className={`${styles.row} ${p.top ? styles.top : ""}`}>
-            {p.top && <div className={styles.medal}>{i===0?"🥇":i===1?"🥈":"🥉"}</div>}
-            {!p.top && <div className={styles.icon}>🏆</div>}
-            <span className={styles.name}>{p.name}</span>
-            <span className={styles.amount}>£{p.amount}</span>
-          </div>
-        ))}
+        {PRIZES.map((p, i) => {
+          const curr = p.currentKey ? currently[p.currentKey] : null;
+          return (
+            <div key={p.name} className={`${styles.row} ${p.top ? styles.top : ""}`}>
+              {p.top && <div className={styles.medal}>{i===0?"🥇":i===1?"🥈":"🥉"}</div>}
+              {!p.top && <div className={styles.icon}>🏆</div>}
+              <div className={styles.nameBlock}>
+                <span className={styles.name}>{p.name}</span>
+                {curr && (
+                  <span className={styles.currently}>
+                    Currently:&nbsp;
+                    <Flag code={curr.flag} size={13} />
+                    {curr.team}
+                    {curr.person && <span className={styles.currentlyOwner}> · {curr.person}</span>}
+                  </span>
+                )}
+              </div>
+              <span className={styles.amount}>£{p.amount}</span>
+            </div>
+          );
+        })}
       </div>
       <div className={styles.total}>
         <span className={styles.totalLabel}>Total prize pot</span>
@@ -174,7 +232,6 @@ export default function PrizesPage() {
                 const above = ev >= fairShare;
                 const isOpen = expanded === name;
                 const breakdown = results.personBreakdown[name] ?? {};
-
                 return (
                   <div key={name} className={`${styles.evCard} ${above ? styles.evAbove : ""}`}>
                     <div
@@ -182,7 +239,7 @@ export default function PrizesPage() {
                       onClick={() => setExpanded(isOpen ? null : name)}
                       role="button"
                       tabIndex={0}
-                      onKeyDown={e => e.key === 'Enter' && setExpanded(isOpen ? null : name)}
+                      onKeyDown={e => e.key==='Enter' && setExpanded(isOpen ? null : name)}
                     >
                       <span className={styles.evRank}>{rank}</span>
                       <div className={styles.evPerson}>
@@ -203,7 +260,6 @@ export default function PrizesPage() {
                         <span className={styles.evChevron}>{isOpen ? "▲" : "▼"}</span>
                       </div>
                     </div>
-
                     {isOpen && (
                       <div className={styles.evBreakdown}>
                         {Object.entries(PRIZE_LABELS).map(([key, label]) => {

@@ -47,11 +47,31 @@
   flex-shrink: 0;
 }
 
-.name {
+.nameBlock {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.name {
   font-weight: 600;
   font-size: 0.92rem;
   color: var(--text);
+}
+
+.currently {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.currentlyOwner {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .amount {

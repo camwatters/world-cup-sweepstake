@@ -318,24 +318,28 @@
 
 .evBreakdownLabel {
   color: var(--muted);
+}
+
+.evBreakdownRight {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 6px;
 }
 
 .evBreakdownSplit {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
-  font-size: 0.72rem;
+  gap: 1px;
+  font-size: 0.7rem;
   color: var(--muted);
   opacity: 0.8;
 }
 
 .evBreakdownSplit span {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
 }
 
 .evBreakdownVal {

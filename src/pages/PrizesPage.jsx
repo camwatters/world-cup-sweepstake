@@ -278,17 +278,21 @@ export default function PrizesPage() {
                             : null;
                           return (
                             <div key={key} className={styles.evBreakdownRow}>
-                              <div className={styles.evBreakdownLabel}>
-                                {label}
+                              <span className={styles.evBreakdownLabel}>{label}</span>
+                              <div className={styles.evBreakdownRight}>
                                 {splitEntries && (
                                   <span className={styles.evBreakdownSplit}>
-                                    {splitEntries.map(([t, v]) => (
-                                      <span key={t}><Flag code={drawLookup[t.toLowerCase()]?.flag} size={11} />{t} £{v.toFixed(2)}</span>
-                                    ))}
+                                    ({splitEntries.map(([t, v], i) => (
+                                      <span key={t}>
+                                        <Flag code={drawLookup[t.toLowerCase()]?.flag} size={11} />
+                                        £{v.toFixed(2)}
+                                        {i < splitEntries.length - 1 ? " · " : ""}
+                                      </span>
+                                    ))})
                                   </span>
                                 )}
+                                <span className={styles.evBreakdownVal}>£{val.toFixed(2)}</span>
                               </div>
-                              <span className={styles.evBreakdownVal}>£{val.toFixed(2)}</span>
                             </div>
                           );
                         })}

@@ -116,11 +116,7 @@ function PeopleView() {
     byPerson[key].push(entry);
   });
 
-  const sortedPeople = Object.entries(byPerson).sort(([, a], [, b]) => {
-    const bestA = Math.min(...a.map((e) => e.odds));
-    const bestB = Math.min(...b.map((e) => e.odds));
-    return bestA - bestB;
-  });
+  const sortedPeople = Object.entries(byPerson).sort(([a], [b]) => a.localeCompare(b));
 
   return (
     <div className={styles.peopleGrid}>

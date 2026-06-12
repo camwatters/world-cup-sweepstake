@@ -369,5 +369,70 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--accent);
-  margin: 0 0 8px;
+  margin: 0 0 10px;
+}
+
+.bracketBanner {
+  background: rgba(240,180,41,0.08);
+  border: 1px solid rgba(240,180,41,0.25);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 0.8rem;
+  color: var(--accent);
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.bracketMatches {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.staticMatch {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 16px;
+  transition: border-color 0.15s;
+}
+
+.staticMatch:hover {
+  border-color: #2a3a55;
+}
+
+.staticMeta {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.staticTeams {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.staticTeam {
+  flex: 1;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.staticTeams .staticTeam:last-child {
+  text-align: right;
+}
+
+.staticVs {
+  font-size: 0.75rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.bracketTbd {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0;
+  padding: 12px 0;
 }

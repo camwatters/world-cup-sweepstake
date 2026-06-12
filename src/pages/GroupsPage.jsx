@@ -45,19 +45,27 @@ async function fetchWithCache(url, cacheKey) {
   return data;
 }
 
-const PRIZES = [
-  { name: "Winner",                         amount: 200, top: true },
-  { name: "Runner-up",                      amount: 80,  top: true },
-  { name: "Third Place",                    amount: 40,  top: true },
-  { name: "Player of the Tournament",       amount: 40  },
-  { name: "Goal of the Tournament",         amount: 40  },
-  { name: "Worst team to exit group stage", amount: 20  },
-  { name: "Worst team to reach Last 16",    amount: 20  },
-  { name: "Worst team to reach QFs",        amount: 20  },
-];
-const TOTAL = PRIZES.reduce((s, p) => s + p.amount, 0);
-
 const KNOCKOUT_ROUNDS = ["Round of 32", "Round of 16", "Quarter-finals", "Semi-finals", "Final"];
+
+// Static bracket from FIFA schedule (teams TBD after group stage, June 26+)
+const R32_SCHEDULE = [
+  { date: "28 Jun", venue: "Inglewood",    home: "Runner-up Group A", away: "Runner-up Group B" },
+  { date: "29 Jun", venue: "Foxborough",   home: "Winner Group E",    away: "Best 3rd A/B/C/D/F" },
+  { date: "29 Jun", venue: "Guadalupe",    home: "Winner Group F",    away: "Runner-up Group C" },
+  { date: "29 Jun", venue: "Houston",      home: "Winner Group C",    away: "Runner-up Group F" },
+  { date: "30 Jun", venue: "East Rutherford", home: "Winner Group I", away: "Best 3rd C/D/F/G/H" },
+  { date: "30 Jun", venue: "Arlington",    home: "Runner-up Group E", away: "Runner-up Group I" },
+  { date: "30 Jun", venue: "Mexico City",  home: "Winner Group A",    away: "Best 3rd C/E/F/H/I" },
+  { date: "1 Jul",  venue: "Atlanta",      home: "Winner Group L",    away: "Best 3rd E/H/I/J/K" },
+  { date: "1 Jul",  venue: "Santa Clara",  home: "Winner Group D",    away: "Best 3rd B/E/F/I/J" },
+  { date: "1 Jul",  venue: "Seattle",      home: "Winner Group G",    away: "Best 3rd A/E/H/I/J" },
+  { date: "2 Jul",  venue: "Toronto",      home: "Runner-up Group K", away: "Runner-up Group L" },
+  { date: "2 Jul",  venue: "Inglewood",    home: "Winner Group H",    away: "Runner-up Group J" },
+  { date: "2 Jul",  venue: "Vancouver",    home: "Winner Group B",    away: "Best 3rd E/F/G/I/J" },
+  { date: "3 Jul",  venue: "Miami Gardens",home: "Winner Group J",    away: "Runner-up Group H" },
+  { date: "3 Jul",  venue: "Arlington",    home: "Runner-up Group D", away: "Runner-up Group G" },
+  { date: "3 Jul",  venue: "Kansas City",  home: "Winner Group K",    away: "Best 3rd D/E/I/J/L" },
+];
 
 export default function GroupsPage() {
   const [standings, setStandings] = useState(null);
@@ -99,7 +107,6 @@ export default function GroupsPage() {
         <button className={tab === "groups" ? styles.active : ""} onClick={() => setTab("groups")}>Groups</button>
         <button className={tab === "fixtures" ? styles.active : ""} onClick={() => setTab("fixtures")}>Fixtures</button>
         <button className={tab === "bracket" ? styles.active : ""} onClick={() => setTab("bracket")}>Bracket</button>
-        <button className={tab === "prizes" ? styles.active : ""} onClick={() => setTab("prizes")}>Prizes</button>
       </div>
 
       {tab === "groups" && (
@@ -125,14 +132,16 @@ export default function GroupsPage() {
       {tab === "bracket" && (
         <BracketTab knockoutEvents={knockoutEvents} />
       )}
-
-      {tab === "prizes" && <PrizesTab />}
     </div>
   );
 }
 
 function GroupTable({ group }) {
-  const entries = group.standings?.entries ?? [];
+  const entries = [...(group.standings?.entries ?? [])].sort((a, b) => {
+    const sa = Object.fromEntries((a.stats ?? []).map((s) => [s.name, s.value]));
+    const sb = Object.fromEntries((b.stats ?? []).map((s) => [s.name, s.value]));
+    return (sb.points ?? 0) - (sa.points ?? 0) || (sb.pointDifferential ?? 0) - (sa.pointDifferential ?? 0);
+  });
   return (
     <div className={styles.groupCard}>
       <h3 className={styles.groupTitle}>{group.name ?? group.abbreviation}</h3>
@@ -242,59 +251,64 @@ function TeamSlot({ entry, team, right }) {
 }
 
 function BracketTab({ knockoutEvents }) {
-  if (knockoutEvents.length === 0) {
+  if (knockoutEvents.length > 0) {
+    const byRound = {};
+    knockoutEvents.forEach((e) => {
+      const round = e.competitions?.[0]?.groups?.name ?? "Unknown";
+      if (!byRound[round]) byRound[round] = [];
+      byRound[round].push(e);
+    });
     return (
-      <div className={styles.bracketEmpty}>
-        <div className={styles.bracketEmptyIcon}>🏆</div>
-        <p className={styles.bracketEmptyTitle}>Knockout stage not started</p>
-        <p className={styles.bracketEmptyText}>The bracket will appear here once the group stage is complete.</p>
-        <div className={styles.bracketRounds}>
-          {KNOCKOUT_ROUNDS.map((round) => (
-            <div key={round} className={styles.bracketRoundPill}>{round}</div>
-          ))}
-        </div>
+      <div className={styles.bracket}>
+        {Object.entries(byRound).map(([round, events]) => (
+          <div key={round} className={styles.bracketRound}>
+            <h3 className={styles.bracketRoundTitle}>{round}</h3>
+            <div className={styles.bracketMatches}>
+              {events.map((event) => (
+                <FixtureRow key={event.id} event={event} />
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     );
   }
 
-  const byRound = {};
-  knockoutEvents.forEach((e) => {
-    const round = e.competitions?.[0]?.groups?.name ?? "Unknown";
-    if (!byRound[round]) byRound[round] = [];
-    byRound[round].push(e);
-  });
-
   return (
     <div className={styles.bracket}>
-      {Object.entries(byRound).map(([round, events]) => (
-        <div key={round} className={styles.bracketRound}>
-          <h3 className={styles.bracketRoundTitle}>{round}</h3>
-          <div className={styles.bracketMatches}>
-            {events.map((event) => (
-              <FixtureRow key={event.id} event={event} />
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function PrizesTab() {
-  return (
-    <div className={styles.prizesPage}>
-      <h2 className={styles.prizesTitle}>Prize Money</h2>
-      <div className={styles.prizesList}>
-        {PRIZES.map((p) => (
-          <div key={p.name} className={`${styles.prizeRow} ${p.top ? styles.top : ""}`}>
-            <span className={styles.prizeName}>{p.name}</span>
-            <span className={styles.prizeAmount}>£{p.amount}</span>
-          </div>
-        ))}
+      <div className={styles.bracketBanner}>
+        <span>Group stage ends ~26 Jun · Knockout stage begins 28 Jun · Teams TBD</span>
       </div>
-      <div className={styles.prizesTotal}>
-        <span className={styles.prizesTotalLabel}>Total prize pot</span>
-        <span className={styles.prizesTotalAmount}>£{TOTAL}</span>
+      <div className={styles.bracketRound}>
+        <h3 className={styles.bracketRoundTitle}>Round of 32</h3>
+        <div className={styles.bracketMatches}>
+          {R32_SCHEDULE.map((m) => (
+            <div key={`${m.date}-${m.home}`} className={styles.staticMatch}>
+              <div className={styles.staticMeta}>{m.date} · {m.venue}</div>
+              <div className={styles.staticTeams}>
+                <span className={styles.staticTeam}>{m.home}</span>
+                <span className={styles.staticVs}>vs</span>
+                <span className={styles.staticTeam}>{m.away}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className={styles.bracketRound}>
+        <h3 className={styles.bracketRoundTitle}>Round of 16 · 4–7 Jul</h3>
+        <p className={styles.bracketTbd}>Teams determined after Round of 32</p>
+      </div>
+      <div className={styles.bracketRound}>
+        <h3 className={styles.bracketRoundTitle}>Quarter-finals · 9–11 Jul</h3>
+        <p className={styles.bracketTbd}>Teams determined after Round of 16</p>
+      </div>
+      <div className={styles.bracketRound}>
+        <h3 className={styles.bracketRoundTitle}>Semi-finals · 14–15 Jul</h3>
+        <p className={styles.bracketTbd}>Teams determined after Quarter-finals</p>
+      </div>
+      <div className={styles.bracketRound}>
+        <h3 className={styles.bracketRoundTitle}>Final · 19 Jul · MetLife Stadium</h3>
+        <p className={styles.bracketTbd}>Teams determined after Semi-finals</p>
       </div>
     </div>
   );

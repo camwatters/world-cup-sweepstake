@@ -12,6 +12,9 @@ export default function Nav() {
         <NavLink to="/groups" className={({ isActive }) => isActive ? styles.active : ""}>
           Groups & Fixtures
         </NavLink>
+        <NavLink to="/prizes" className={({ isActive }) => isActive ? styles.active : ""}>
+          Prizes
+        </NavLink>
       </div>
     </nav>
   );

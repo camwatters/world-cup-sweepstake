@@ -89,7 +89,7 @@ function gottGames(round) {
 }
 
 // groupOverrides: { letter: [{teamName, pts, gd}] } — locked standings for complete groups
-// gottConfig: { teamName, quality } — current GOTT holder and their goal quality (0–1)
+// gottConfig: { teamName, quality, perGameProb } — current GOTT holder; perGameProb = chance any one game beats them
 export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null) {
   const personTotal = {};
   const personBreakdown = {};
@@ -98,6 +98,15 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     personTotal[p] = 0;
     personBreakdown[p] = Object.fromEntries(PRIZE_KEYS.map(k => [k, 0]));
   });
+
+  // Goal quality sampler: power distribution calibrated so P(quality > currentBest) = perGameProb
+  const gottSample = (() => {
+    if (gottConfig?.quality > 0 && gottConfig?.perGameProb > 0) {
+      const exp = Math.log(1 - gottConfig.perGameProb) / Math.log(gottConfig.quality);
+      return () => Math.pow(Math.random(), 1 / exp);
+    }
+    return Math.random; // fallback: uniform
+  })();
 
   for (let s = 0; s < n; s++) {
     const exit = {};
@@ -180,20 +189,19 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
       add(pottWinner,'pott',40);
     }
 
-    // GOTT: weighted by games played; current holder starts with their committed quality
+    // GOTT: each game samples a goal quality; calibrated so P(quality > currentBest) = perGameProb
     {
       let gottBest = gottConfig?.quality ?? -1;
-      let gottWinner = gottConfig ? teamMap[gottConfig.teamName] ?? null : null;
+      let gottWinner = gottConfig ? (teamMap[gottConfig.teamName] ?? null) : null;
       for (const t of TEAMS) {
         const games = gottGames(exit[t.team] ?? 'group');
         let best = 0;
         if (gottConfig && t.team === gottConfig.teamName) {
-          // Already committed quality from group stage; can only improve in knockouts
-          best = gottConfig.quality;
+          best = gottConfig.quality; // committed from group stage
           const ko = Math.max(0, games - 3);
-          for (let g = 0; g < ko; g++) best = Math.max(best, Math.random());
+          for (let g = 0; g < ko; g++) best = Math.max(best, gottSample());
         } else {
-          for (let g = 0; g < games; g++) best = Math.max(best, Math.random());
+          for (let g = 0; g < games; g++) best = Math.max(best, gottSample());
         }
         if (best > gottBest) { gottBest = best; gottWinner = t; }
       }

@@ -106,11 +106,13 @@ function gottGames(round) {
 export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null) {
   const personTotal = {};
   const personBreakdown = {};
+  const teamTotal = {};
   const people = [...new Set(TEAMS.map(t => t.person).filter(Boolean))];
   people.forEach(p => {
     personTotal[p] = 0;
     personBreakdown[p] = Object.fromEntries(PRIZE_KEYS.map(k => [k, 0]));
   });
+  TEAMS.forEach(t => { teamTotal[t.team] = 0; });
 
   // Goal quality sampler: power distribution calibrated so P(quality > currentBest) = perGameProb
   const gottSample = (() => {
@@ -184,7 +186,7 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     }
 
     const add = (team, key, amt) => {
-      if (team?.person) { personTotal[team.person]+=amt; personBreakdown[team.person][key]+=amt; }
+      if (team?.person) { personTotal[team.person]+=amt; personBreakdown[team.person][key]+=amt; teamTotal[team.team]+=amt; }
     };
     const byExit = r => TEAMS.filter(t => exit[t.team]===r);
     const worst = ts => ts.length ? ts.reduce((a,b) => a.odds>b.odds?a:b) : null;
@@ -240,5 +242,6 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     personBreakdown: Object.fromEntries(Object.entries(personBreakdown).map(([p,d]) => [
       p, Object.fromEntries(Object.entries(d).map(([k,v]) => [k, +(v/n).toFixed(2)]))
     ])),
+    teamEV: Object.fromEntries(Object.entries(teamTotal).map(([t,v]) => [t, +(v/n).toFixed(2)])),
   };
 }

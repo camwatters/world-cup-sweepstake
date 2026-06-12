@@ -251,6 +251,9 @@ export default function PrizesPage() {
                             <span key={t.team} className={styles.evTeam}>
                               <Flag code={t.flag} size={14} />
                               {t.team}
+                              {teams.length > 1 && results?.teamEV?.[t.team] !== undefined && (
+                                <span className={styles.evTeamAmt}>£{results.teamEV[t.team].toFixed(2)}</span>
+                              )}
                             </span>
                           ))}
                         </div>

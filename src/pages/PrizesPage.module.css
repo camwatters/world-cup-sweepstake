@@ -249,6 +249,13 @@
   color: var(--muted);
 }
 
+.evTeamAmt {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #5b8db8;
+}
+
 .evRight {
   display: flex;
   align-items: center;

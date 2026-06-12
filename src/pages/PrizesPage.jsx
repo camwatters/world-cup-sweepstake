@@ -273,7 +273,7 @@ export default function PrizesPage() {
                           const val = breakdown[key] ?? 0;
                           if (val < 0.01) return null;
                           const teamSplit = results.personBreakdownTeam?.[name]?.[key];
-                          const splitEntries = teamSplit && Object.keys(teamSplit).length > 1
+                          const splitEntries = teams.length > 1 && teamSplit
                             ? Object.entries(teamSplit).sort(([,a],[,b]) => b-a)
                             : null;
                           return (

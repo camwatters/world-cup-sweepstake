@@ -95,7 +95,7 @@ function buildGroupOverrides(standings) {
       const teamName = resolveEspnTeam(e.team?.displayName ?? "");
       if (!teamName) return null;
       const st = getStats(e);
-      return { teamName, pts: st.points ?? 0, gd: st.pointDifferential ?? 0 };
+      return { teamName, pts: st.points ?? 0, gd: st.pointDifferential ?? 0, gf: st.pointsFor ?? 0 };
     }).filter(Boolean);
     if (mapped.length === 4) overrides[letter] = mapped;
   }

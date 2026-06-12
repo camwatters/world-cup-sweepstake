@@ -45,24 +45,37 @@ const probSum  = rawProbs.reduce((a, b) => a + b, 0);
 const TEAMS    = draw.map((e, i) => ({ ...e, p: rawProbs[i] / probSum }));
 const teamMap  = Object.fromEntries(TEAMS.map(t => [t.team, t]));
 
+// Knuth Poisson sampler
+function poisson(lambda) {
+  const L = Math.exp(-lambda);
+  let k = 0, p = 1;
+  do { k++; p *= Math.random(); } while (p > L);
+  return k - 1;
+}
+
 function matchSim(a, b) {
   return Math.random() < a.p / (a.p + b.p) ? a : b;
 }
 
 function simGroup(names) {
   const teams = names.map(n => teamMap[n]);
-  const pts = [0,0,0,0], gd = [0,0,0,0];
+  const pts = [0,0,0,0], gd = [0,0,0,0], gf = [0,0,0,0];
   for (let i = 0; i < 4; i++) {
     for (let j = i + 1; j < 4; j++) {
-      if (Math.random() < teams[i].p / (teams[i].p + teams[j].p)) {
-        pts[i] += 3; gd[i]++; gd[j]--;
-      } else {
-        pts[j] += 3; gd[j]++; gd[i]--;
-      }
+      const iWins = Math.random() < teams[i].p / (teams[i].p + teams[j].p);
+      // Sample realistic goal counts; force winner to score more
+      let gi = poisson(1.3), gj = poisson(1.3);
+      if (iWins && gi <= gj) gi = gj + 1;
+      else if (!iWins && gj <= gi) gj = gi + 1;
+      pts[iWins ? i : j] += 3;
+      gf[i] += gi; gf[j] += gj;
+      gd[i] += gi - gj; gd[j] += gj - gi;
     }
   }
-  const idx = [0,1,2,3].sort((a,b) => (pts[b]-pts[a]) || (gd[b]-gd[a]) || (Math.random()-0.5));
-  return idx.map(i => ({ team: teams[i], pts: pts[i], gd: gd[i] }));
+  const idx = [0,1,2,3].sort((a,b) =>
+    (pts[b]-pts[a]) || (gd[b]-gd[a]) || (gf[b]-gf[a]) || (Math.random()-0.5)
+  );
+  return idx.map(i => ({ team: teams[i], pts: pts[i], gd: gd[i], gf: gf[i] }));
 }
 
 function assignThirds(best8) {
@@ -118,18 +131,18 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
       let sorted;
       if (groupOverrides[letter]) {
         sorted = groupOverrides[letter]
-          .map(({ teamName, pts, gd }) => ({ team: teamMap[teamName], pts, gd }))
+          .map(({ teamName, pts, gd, gf }) => ({ team: teamMap[teamName], pts, gd, gf: gf ?? 0 }))
           .filter(r => r.team);
       } else {
         sorted = simGroup(names);
       }
       grpResult[letter] = sorted;
-      sorted.forEach(r => { groupRank[r.team.team] = { pts: r.pts, gd: r.gd }; });
+      sorted.forEach(r => { groupRank[r.team.team] = { pts: r.pts, gd: r.gd, gf: r.gf ?? 0 }; });
       if (sorted[3]) exit[sorted[3].team.team] = 'group';
-      if (sorted[2]) allThirds.push({ team: sorted[2].team, group: letter, pts: sorted[2].pts, gd: sorted[2].gd });
+      if (sorted[2]) allThirds.push({ team: sorted[2].team, group: letter, pts: sorted[2].pts, gd: sorted[2].gd, gf: sorted[2].gf ?? 0 });
     }
 
-    allThirds.sort((a,b) => b.pts-a.pts || b.gd-a.gd || a.team.p-b.team.p);
+    allThirds.sort((a,b) => b.pts-a.pts || b.gd-a.gd || b.gf-a.gf || a.team.p-b.team.p);
     const best8 = allThirds.slice(0, 8);
     allThirds.slice(8).forEach(t => { exit[t.team.team] = 'group'; });
 
@@ -216,7 +229,8 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
       const sb=groupRank[best?.team]; if(!sb) return t;
       if(s.pts!==sb.pts) return s.pts<sb.pts?t:best;
       if(s.gd!==sb.gd) return s.gd<sb.gd?t:best;
-      return Math.random()<0.5?t:best; // random tiebreak among equally bad teams
+      if(s.gf!==sb.gf) return s.gf<sb.gf?t:best;
+      return Math.random()<0.5?t:best; // random tiebreak if genuinely equal
     }, null);
     add(worstOverall, 'worstOverall', 20);
   }

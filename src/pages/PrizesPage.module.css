@@ -151,10 +151,14 @@
 }
 
 /* EV results table */
-.evNote {
+.evMeta {
   font-size: 0.75rem;
   color: var(--muted);
   margin-bottom: 12px;
+}
+
+.evLocked {
+  color: #22c55e;
 }
 
 .evTable {
@@ -163,20 +167,30 @@
   gap: 6px;
 }
 
+.evCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.evCard.evAbove {
+  border-color: rgba(240,180,41,0.3);
+  background: rgba(240,180,41,0.04);
+}
+
 .evRow {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
   padding: 10px 14px;
-  transition: border-color 0.15s;
+  cursor: pointer;
+  user-select: none;
 }
 
-.evRow.evAbove {
-  border-color: rgba(240,180,41,0.3);
-  background: rgba(240,180,41,0.04);
+.evRow:hover {
+  background: rgba(255,255,255,0.03);
 }
 
 .evRank {
@@ -215,19 +229,57 @@
   color: var(--muted);
 }
 
+.evRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .evAmount {
   font-family: 'Barlow Condensed', sans-serif;
   font-size: 1.3rem;
   font-weight: 700;
   color: #5b8db8;
-  flex-shrink: 0;
 }
 
 .evAmountGold {
   color: var(--accent);
 }
 
+.evChevron {
+  font-size: 0.6rem;
+  color: var(--muted);
+}
+
+/* Breakdown panel */
+.evBreakdown {
+  border-top: 1px solid var(--border);
+  padding: 10px 14px 12px 46px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.evBreakdownRow {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+}
+
+.evBreakdownLabel {
+  color: var(--muted);
+}
+
+.evBreakdownVal {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 600;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
 @media (max-width: 520px) {
   .simHeader { flex-direction: column; }
   .simBtn { width: 100%; text-align: center; }
+  .evBreakdown { padding-left: 14px; }
 }

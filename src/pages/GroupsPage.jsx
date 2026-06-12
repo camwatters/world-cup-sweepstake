@@ -308,11 +308,11 @@ function FixtureRow({ event }) {
         </div>
         <TeamSlot entry={awayEntry} team={away?.team} score={away?.score} right />
       </div>
-      {(event.name || metaParts.length > 0) && (
+      {(competition?.groups?.name || metaParts.length > 0) && (
         <div className={styles.fixtureGroup}>
-          {competition?.groups?.name ?? event.name}
+          {competition?.groups?.name}
           {metaParts.length > 0 && (
-            <span className={styles.fixtureMeta}> · {metaParts.join(" · ")}</span>
+            <span className={styles.fixtureMeta}>{competition?.groups?.name ? " · " : ""}{metaParts.join(" · ")}</span>
           )}
         </div>
       )}

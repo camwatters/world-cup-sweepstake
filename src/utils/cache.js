@@ -1,11 +1,14 @@
-const TTL_MS = 3 * 60 * 60 * 1000; // 3 hours
+export const TTL = {
+  SCORES:    2  * 60 * 1000, // 2 minutes
+  STANDINGS: 15 * 60 * 1000, // 15 minutes
+};
 
-export function getCached(key) {
+export function getCached(key, ttl = TTL.STANDINGS) {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return null;
     const { data, ts } = JSON.parse(raw);
-    if (Date.now() - ts > TTL_MS) return null;
+    if (Date.now() - ts > ttl) return null;
     return data;
   } catch {
     return null;

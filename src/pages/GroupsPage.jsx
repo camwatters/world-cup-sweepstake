@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { draw } from "../data/draw";
 import Flag from "../components/Flag";
-import { getCached, setCache } from "../utils/cache";
+import { getCached, setCache, TTL } from "../utils/cache";
 import styles from "./GroupsPage.module.css";
 
 const ESPN_STANDINGS = "https://site.api.espn.com/apis/v2/sports/soccer/fifa.world/standings?season=2026";
@@ -42,8 +42,8 @@ function findEntry(espnName) {
   return null;
 }
 
-async function fetchWithCache(url, cacheKey) {
-  const cached = getCached(cacheKey);
+async function fetchWithCache(url, cacheKey, ttl) {
+  const cached = getCached(cacheKey, ttl);
   if (cached) return cached;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -120,8 +120,8 @@ export default function GroupsPage() {
 
   useEffect(() => {
     Promise.all([
-      fetchWithCache(ESPN_STANDINGS, CACHE_KEY_STANDINGS),
-      fetchWithCache(scoreboardUrl(), CACHE_KEY_SCOREBOARD),
+      fetchWithCache(ESPN_STANDINGS, CACHE_KEY_STANDINGS, TTL.STANDINGS),
+      fetchWithCache(scoreboardUrl(), CACHE_KEY_SCOREBOARD, TTL.SCORES),
     ])
       .then(([s, sc]) => {
         setStandings(s);

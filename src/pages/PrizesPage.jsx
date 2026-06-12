@@ -2,7 +2,7 @@ import { useState } from "react";
 import { draw } from "../data/draw";
 import Flag from "../components/Flag";
 import { runSimulations } from "../utils/monteCarlo";
-import { getCached, setCache } from "../utils/cache";
+import { getCached, setCache, TTL } from "../utils/cache";
 import styles from "./PrizesPage.module.css";
 
 const PRIZES = [
@@ -100,7 +100,7 @@ export default function PrizesPage() {
 
     let groupOverrides = {};
     try {
-      let standings = getCached(CACHE_KEY);
+      let standings = getCached(CACHE_KEY, TTL.STANDINGS);
       if (!standings) {
         const res = await fetch(ESPN_STANDINGS);
         if (res.ok) { standings = await res.json(); setCache(CACHE_KEY, standings); }

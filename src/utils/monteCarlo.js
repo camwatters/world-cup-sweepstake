@@ -231,7 +231,10 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
         pt[key][team.team] = (pt[key][team.team] ?? 0) + amt;
       }
     };
+    const EXIT_ORDER = ['group','r32','r16','qf','sf','4th','3rd','final','winner'];
+    const exitRank = r => EXIT_ORDER.indexOf(r ?? 'group');
     const byExit = r => TEAMS.filter(t => exit[t.team]===r);
+    const reachedOrBeyond = stage => TEAMS.filter(t => exitRank(exit[t.team]) > exitRank(stage));
     const worst = ts => ts.length ? ts.reduce((a,b) => a.odds>b.odds?a:b) : null;
 
     add(byExit('winner')[0], 'winner', 200);
@@ -265,9 +268,9 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
       }
       if (gottWinner) add(gottWinner, 'gott', 40);
     }
-    add(worst(byExit('r32')), 'worstGroup', 20);
-    add(worst(byExit('r16')), 'worstL16', 20);
-    add(worst(byExit('qf')),  'worstQF', 20);
+    add(worst(reachedOrBeyond('group')), 'worstGroup', 20);
+    add(worst(reachedOrBeyond('r32')),  'worstL16', 20);
+    add(worst(reachedOrBeyond('r16')),  'worstQF', 20);
 
     const worstOverall = TEAMS.reduce((best,t) => {
       const s=groupRank[t.team]; if(!s) return best;

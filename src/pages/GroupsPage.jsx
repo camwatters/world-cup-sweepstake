@@ -71,14 +71,18 @@ function computeQualifiers(groups) {
       allThirds.push({
         group: letter,
         name: sorted[2].team?.displayName ?? "",
+        played: st.gamesPlayed ?? 0,
         points: st.points ?? 0,
         gd: st.pointDifferential ?? 0,
-        gf: st.pointsFor ?? st.goalsScored ?? 0,
+        gf: st.pointsFor ?? 0,
+        ga: st.pointsAgainst ?? 0,
       });
     }
   });
+  // Sort by pts → GD → GF (FIFA tiebreak criteria for 3rd-place ranking)
   allThirds.sort((a, b) => b.points - a.points || b.gd - a.gd || b.gf - a.gf);
-  return { winners, runnersUp, best8thirds: allThirds.slice(0, 8).map((t) => t.name) };
+  const best8 = new Set(allThirds.slice(0, 8).map((t) => t.name));
+  return { winners, runnersUp, allThirds, best8thirds: [...best8] };
 }
 
 // Static bracket from FIFA schedule (teams TBD after group stage, June 26+)
@@ -297,6 +301,50 @@ function resolveSlot(label, qualifiers) {
   return { label, team: null };
 }
 
+function ThirdPlaceTable({ allThirds, best8thirds }) {
+  if (allThirds.length === 0) return null;
+  const best8 = new Set(best8thirds);
+  return (
+    <div className={styles.thirdsTable}>
+      <h3 className={styles.bracketRoundTitle}>Best 3rd-Place Rankings</h3>
+      <p className={styles.thirdsNote}>Top 8 qualify for Round of 32 · Ranked by Pts → GD → GF</p>
+      <table className={styles.table}>
+        <thead>
+          <tr>
+            <th className={styles.teamCol}>Team</th>
+            <th>Grp</th>
+            <th>P</th>
+            <th>GD</th>
+            <th>GF</th>
+            <th>Pts</th>
+          </tr>
+        </thead>
+        <tbody>
+          {allThirds.map((t, i) => {
+            const entry = findEntry(t.name);
+            const qualifying = best8.has(t.name);
+            return (
+              <tr key={t.name} className={qualifying ? styles.qualifyingRow : styles.eliminatedRow}>
+                <td className={styles.teamCell}>
+                  <span className={styles.thirdsRank}>{i + 1}</span>
+                  {entry && <Flag code={entry.flag} size={18} />}
+                  <span className={styles.espnTeamName}>{t.name}</span>
+                  {qualifying && i < 8 && <span className={styles.qualifyBadge}>Q</span>}
+                </td>
+                <td>{t.group}</td>
+                <td>{t.played}</td>
+                <td>{t.gd > 0 ? `+${t.gd}` : t.gd}</td>
+                <td>{t.gf}</td>
+                <td><strong>{t.points}</strong></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function BracketTab({ knockoutEvents, qualifiers }) {
   if (knockoutEvents.length > 0) {
     const byRound = {};
@@ -359,6 +407,8 @@ function BracketTab({ knockoutEvents, qualifiers }) {
           })}
         </div>
       </div>
+      <ThirdPlaceTable allThirds={qualifiers.allThirds} best8thirds={qualifiers.best8thirds} />
+
       <div className={styles.bracketRound}>
         <h3 className={styles.bracketRoundTitle}>Round of 16 · 4–7 Jul</h3>
         <p className={styles.bracketTbd}>Teams determined after Round of 32</p>

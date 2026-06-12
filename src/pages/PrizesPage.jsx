@@ -9,6 +9,7 @@ const PRIZES = [
   { name: "Worst team to exit group stage",      amount: 20  },
   { name: "Worst team to reach Last 16",         amount: 20  },
   { name: "Worst team to reach Quarter-Finals",  amount: 20  },
+  { name: "Worst team overall",                  amount: 20  },
 ];
 
 const TOTAL = PRIZES.reduce((s, p) => s + p.amount, 0);

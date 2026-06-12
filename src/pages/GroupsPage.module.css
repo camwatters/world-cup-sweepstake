@@ -453,3 +453,50 @@
   color: var(--muted);
   margin-top: 1px;
 }
+
+/* Third-place table */
+.thirdsTable {
+  margin-top: 8px;
+}
+
+.thirdsNote {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin: -6px 0 10px;
+}
+
+.qualifyingRow td {
+  color: var(--text);
+}
+
+.qualifyingRow .espnTeamName {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.eliminatedRow td {
+  color: var(--muted);
+}
+
+.eliminatedRow .espnTeamName {
+  color: var(--muted);
+}
+
+.thirdsRank {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted);
+  min-width: 16px;
+}
+
+.qualifyBadge {
+  font-size: 0.62rem;
+  font-weight: 700;
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  padding: 1px 5px;
+  border-radius: 8px;
+  white-space: nowrap;
+}

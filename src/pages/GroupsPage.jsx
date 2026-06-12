@@ -273,6 +273,21 @@ function FixtureRow({ event }) {
   const homeEntry = findEntry(home?.team?.displayName);
   const awayEntry = findEntry(away?.team?.displayName);
 
+  const venue = competition?.venue;
+  const venueName = venue?.fullName;
+  const venueCity = venue?.address?.city;
+  const venueStr = venueName
+    ? (venueCity ? `${venueName}, ${venueCity}` : venueName)
+    : null;
+
+  const referee = competition?.officials?.find(
+    (o) => o.position?.displayName?.toLowerCase().includes("referee")
+  )?.fullName ?? null;
+
+  const metaParts = [];
+  if (venueStr) metaParts.push(venueStr);
+  if (referee) metaParts.push(`Ref: ${referee}`);
+
   return (
     <div className={`${styles.fixtureRow} ${isLive ? styles.live : ""}`}>
       <div className={styles.fixtureDate}>
@@ -293,8 +308,13 @@ function FixtureRow({ event }) {
         </div>
         <TeamSlot entry={awayEntry} team={away?.team} score={away?.score} right />
       </div>
-      {event.name && (
-        <div className={styles.fixtureGroup}>{competition?.groups?.name ?? event.name}</div>
+      {(event.name || metaParts.length > 0) && (
+        <div className={styles.fixtureGroup}>
+          {competition?.groups?.name ?? event.name}
+          {metaParts.length > 0 && (
+            <span className={styles.fixtureMeta}> · {metaParts.join(" · ")}</span>
+          )}
+        </div>
       )}
     </div>
   );

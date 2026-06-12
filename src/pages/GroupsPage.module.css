@@ -239,6 +239,10 @@
   margin-top: 6px;
 }
 
+.fixtureMeta {
+  opacity: 0.75;
+}
+
 /* Prizes */
 .prizesPage {
   max-width: 600px;

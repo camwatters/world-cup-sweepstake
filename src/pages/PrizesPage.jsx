@@ -85,19 +85,23 @@ function buildGroupOverrides(standings) {
     if (!letter || letter.length > 1) continue;
     const entries = group.standings?.entries ?? [];
     const getStats = e => Object.fromEntries((e.stats ?? []).map(s => [s.name, s.value]));
-    const complete = entries.every(e => (getStats(e).gamesPlayed ?? 0) >= 3);
-    if (!complete) continue;
+    const gamesPlayedArr = entries.map(e => getStats(e).gamesPlayed ?? 0);
+    const minPlayed = Math.min(...gamesPlayedArr);
+    const maxPlayed = Math.max(...gamesPlayedArr);
+    if (minPlayed === 0 && maxPlayed === 0) continue;
+    if (minPlayed !== maxPlayed) continue; // mid-matchday — skip
+    const complete = minPlayed >= 3;
     const sorted = [...entries].sort((a, b) => {
       const sa = getStats(a), sb = getStats(b);
       return (sb.points??0)-(sa.points??0) || (sb.pointDifferential??0)-(sa.pointDifferential??0) || (sb.pointsFor??0)-(sa.pointsFor??0);
     });
-    const mapped = sorted.map(e => {
+    const teams = sorted.map(e => {
       const teamName = resolveEspnTeam(e.team?.displayName ?? "");
       if (!teamName) return null;
       const st = getStats(e);
       return { teamName, pts: st.points ?? 0, gd: st.pointDifferential ?? 0, gf: st.pointsFor ?? 0 };
     }).filter(Boolean);
-    if (mapped.length === 4) overrides[letter] = mapped;
+    if (teams.length === 4) overrides[letter] = { teams, complete, matchdaysPlayed: minPlayed };
   }
   return overrides;
 }
@@ -165,10 +169,7 @@ export default function PrizesPage() {
     }, 10);
   }
 
-  const people = Object.keys(byPerson);
-  const fairShare = results
-    ? Object.values(results.personEV).reduce((s,v) => s+v, 0) / people.length
-    : TOTAL / people.length;
+  const fairShare = TOTAL / Object.keys(byPerson).length;
 
   const ranked = results
     ? Object.entries(results.personEV)
@@ -222,12 +223,11 @@ export default function PrizesPage() {
 
         {ranked && (
           <>
-            <div className={styles.evMeta}>
-              Fair share: £{fairShare.toFixed(2)}
-              {lockedCount !== null && (
-                <span className={styles.evLocked}> · {lockedCount}/12 groups locked from live data</span>
-              )}
-            </div>
+            {lockedCount !== null && lockedCount > 0 && (
+              <div className={styles.evMeta}>
+                <span className={styles.evLocked}>Live standings used for {lockedCount}/12 groups</span>
+              </div>
+            )}
             <div className={styles.evTable}>
               {ranked.map(({ rank, name, ev }) => {
                 const teams = (byPerson[name] ?? []).sort((a,b) => a.odds-b.odds);

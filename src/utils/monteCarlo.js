@@ -57,6 +57,37 @@ function matchSim(a, b) {
   return Math.random() < a.p / (a.p + b.p) ? a : b;
 }
 
+// MD schedule for a 4-team round-robin (indices into group names array)
+const GROUP_SCHEDULE = [
+  [[0,1],[2,3]], // MD1
+  [[0,2],[1,3]], // MD2
+  [[0,3],[1,2]], // MD3
+];
+
+// Seed from real standings, simulate only remaining matchdays
+function simPartialGroup(names, overrideTeams, matchdaysPlayed) {
+  const om = Object.fromEntries(overrideTeams.map(t => [t.teamName, t]));
+  const teams = names.map(n => teamMap[n]);
+  const pts = names.map(n => om[n]?.pts ?? 0);
+  const gd  = names.map(n => om[n]?.gd  ?? 0);
+  const gf  = names.map(n => om[n]?.gf  ?? 0);
+  for (let md = matchdaysPlayed; md < 3; md++) {
+    for (const [i, j] of GROUP_SCHEDULE[md]) {
+      const iWins = Math.random() < teams[i].p / (teams[i].p + teams[j].p);
+      let gi = poisson(1.3), gj = poisson(1.3);
+      if (iWins && gi <= gj) gi = gj + 1;
+      else if (!iWins && gj <= gi) gj = gi + 1;
+      pts[iWins ? i : j] += 3;
+      gf[i] += gi; gf[j] += gj;
+      gd[i] += gi - gj; gd[j] += gj - gi;
+    }
+  }
+  const idx = [0,1,2,3].sort((a,b) =>
+    (pts[b]-pts[a]) || (gd[b]-gd[a]) || (gf[b]-gf[a]) || (Math.random()-0.5)
+  );
+  return idx.map(i => ({ team: teams[i], pts: pts[i], gd: gd[i], gf: gf[i] }));
+}
+
 function simGroup(names) {
   const teams = names.map(n => teamMap[n]);
   const pts = [0,0,0,0], gd = [0,0,0,0], gf = [0,0,0,0];
@@ -101,7 +132,7 @@ function gottGames(round) {
   return { group:3, r32:4, r16:5, qf:6, sf:7, '3rd':8, '4th':8, final:8, winner:8 }[round] ?? 3;
 }
 
-// groupOverrides: { letter: [{teamName, pts, gd}] } — locked standings for complete groups
+// groupOverrides: { letter: { teams:[{teamName,pts,gd,gf}], complete:bool, matchdaysPlayed:int } }
 // gottConfig: { teamName, quality, perGameProb } — current GOTT holder; perGameProb = chance any one game beats them
 export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null) {
   const personTotal = {};
@@ -131,10 +162,13 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
 
     for (const [letter, names] of Object.entries(GROUPS)) {
       let sorted;
-      if (groupOverrides[letter]) {
-        sorted = groupOverrides[letter]
+      const ov = groupOverrides[letter];
+      if (ov?.complete) {
+        sorted = ov.teams
           .map(({ teamName, pts, gd, gf }) => ({ team: teamMap[teamName], pts, gd, gf: gf ?? 0 }))
           .filter(r => r.team);
+      } else if (ov) {
+        sorted = simPartialGroup(names, ov.teams, ov.matchdaysPlayed);
       } else {
         sorted = simGroup(names);
       }

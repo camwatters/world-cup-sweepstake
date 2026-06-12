@@ -10,20 +10,27 @@ const ESPN_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer/fi
 const CACHE_KEY_STANDINGS = "espn_standings";
 const CACHE_KEY_SCOREBOARD = "espn_scoreboard";
 
-// Build a lookup: team name → sweepstake entry
+const ESPN_ALIASES = {
+  "czechia": "czech republic",
+  "bosnia-herzegovina": "bosnia and herzegovina",
+  "türkiye": "turkey",
+  "united states": "usa",
+  "curaçao": "curacao",
+  "congo dr": "dr congo",
+};
+
 const teamLookup = {};
 draw.forEach((e) => {
   teamLookup[e.team.toLowerCase()] = e;
-  // Also index by short/alternate names ESPN might use
 });
 
 function findEntry(espnName) {
   if (!espnName) return null;
   const lower = espnName.toLowerCase();
-  if (teamLookup[lower]) return teamLookup[lower];
-  // Fuzzy match: check if any key is contained in the ESPN name or vice versa
+  const resolved = ESPN_ALIASES[lower] ?? lower;
+  if (teamLookup[resolved]) return teamLookup[resolved];
   for (const [key, val] of Object.entries(teamLookup)) {
-    if (lower.includes(key) || key.includes(lower)) return val;
+    if (resolved.includes(key) || key.includes(resolved)) return val;
   }
   return null;
 }

@@ -111,7 +111,7 @@ draw.forEach(e => {
 
 // Hardcoded current holders (manually updated)
 const MANUAL_CURRENT = {
-  gott: draw.find(t => t.team === "South Korea"),
+  gott: { entry: draw.find(t => t.team === "South Korea"), quality: 0.3 },
 };
 
 export default function PrizesPage() {
@@ -137,7 +137,7 @@ export default function PrizesPage() {
   }, []);
 
   const currently = {
-    gott: MANUAL_CURRENT.gott,
+    gott: MANUAL_CURRENT.gott?.entry,
     worstOverall: worstTeam,
   };
 
@@ -157,7 +157,9 @@ export default function PrizesPage() {
       }
     } catch {}
     setTimeout(() => {
-      const result = runSimulations(10000, groupOverrides);
+      const gottEntry = MANUAL_CURRENT.gott;
+      const gottConfig = gottEntry ? { teamName: gottEntry.entry.team, quality: gottEntry.quality } : null;
+      const result = runSimulations(10000, groupOverrides, gottConfig);
       setResults(result);
       setRunning(false);
     }, 10);

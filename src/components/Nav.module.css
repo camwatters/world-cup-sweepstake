@@ -10,6 +10,18 @@
   z-index: 10;
 }
 
+@media (max-width: 520px) {
+  .nav {
+    flex-direction: column;
+    height: auto;
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .links {
+    justify-content: center;
+  }
+}
+
 .brand {
   font-weight: 700;
   font-size: 1.1rem;

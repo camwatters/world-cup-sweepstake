@@ -84,8 +84,13 @@ function assignThirds(best8) {
 
 const PRIZE_KEYS = ['winner','runnerUp','third','pott','gott','worstGroup','worstL16','worstQF','worstOverall'];
 
+function gottGames(round) {
+  return { group:3, r32:4, r16:5, qf:6, sf:7, '3rd':8, '4th':8, final:8, winner:8 }[round] ?? 3;
+}
+
 // groupOverrides: { letter: [{teamName, pts, gd}] } — locked standings for complete groups
-export function runSimulations(n = 10000, groupOverrides = {}) {
+// gottConfig: { teamName, quality } — current GOTT holder and their goal quality (0–1)
+export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null) {
   const personTotal = {};
   const personBreakdown = {};
   const people = [...new Set(TEAMS.map(t => t.person).filter(Boolean))];
@@ -175,7 +180,25 @@ export function runSimulations(n = 10000, groupOverrides = {}) {
       add(pottWinner,'pott',40);
     }
 
-    add(TEAMS[Math.floor(Math.random()*TEAMS.length)], 'gott', 40);
+    // GOTT: weighted by games played; current holder starts with their committed quality
+    {
+      let gottBest = gottConfig?.quality ?? -1;
+      let gottWinner = gottConfig ? teamMap[gottConfig.teamName] ?? null : null;
+      for (const t of TEAMS) {
+        const games = gottGames(exit[t.team] ?? 'group');
+        let best = 0;
+        if (gottConfig && t.team === gottConfig.teamName) {
+          // Already committed quality from group stage; can only improve in knockouts
+          best = gottConfig.quality;
+          const ko = Math.max(0, games - 3);
+          for (let g = 0; g < ko; g++) best = Math.max(best, Math.random());
+        } else {
+          for (let g = 0; g < games; g++) best = Math.max(best, Math.random());
+        }
+        if (best > gottBest) { gottBest = best; gottWinner = t; }
+      }
+      if (gottWinner) add(gottWinner, 'gott', 40);
+    }
     add(worst(byExit('group')), 'worstGroup', 20);
     add(worst(byExit('r32')),   'worstL16', 20);
     add(worst(byExit('r16')),   'worstQF', 20);

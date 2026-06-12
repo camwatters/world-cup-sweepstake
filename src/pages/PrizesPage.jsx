@@ -11,10 +11,10 @@ const PRIZES = [
   { name: "Third Place",                         amount: 40,  top: true },
   { name: "Player of the Tournament",            amount: 40  },
   { name: "Goal of the Tournament",              amount: 40  },
-  { name: "Worst team to exit group stage",      amount: 20  },
-  { name: "Worst team to reach Last 16",         amount: 20  },
-  { name: "Worst team to reach Quarter-Finals",  amount: 20  },
-  { name: "Worst team overall",                  amount: 20  },
+  { name: "Worst Team Overall",                  amount: 20  },
+  { name: "Worst Team to exit Group Stage",      amount: 20  },
+  { name: "Worst Team to reach Last 16",         amount: 20  },
+  { name: "Worst Team to reach Quarter-Finals",  amount: 20  },
 ];
 
 const PRIZE_LABELS = {

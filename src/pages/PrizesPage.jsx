@@ -273,9 +273,8 @@ export default function PrizesPage() {
                             : null;
                           return (
                             <div key={key} className={styles.evBreakdownRow}>
-                              <span className={styles.evBreakdownLabel}>{label}</span>
-                              <div className={styles.evBreakdownRight}>
-                                <span className={styles.evBreakdownVal}>£{val.toFixed(2)}</span>
+                              <div className={styles.evBreakdownLeft}>
+                                <span className={styles.evBreakdownLabel}>{label}</span>
                                 {splitEntries && (
                                   <span className={styles.evBreakdownSplit}>
                                     ({splitEntries.map(([t, v], i) => (
@@ -288,6 +287,7 @@ export default function PrizesPage() {
                                   </span>
                                 )}
                               </div>
+                              <span className={styles.evBreakdownVal}>£{val.toFixed(2)}</span>
                             </div>
                           );
                         })}

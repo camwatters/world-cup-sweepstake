@@ -1,0 +1,169 @@
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.header h1 {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #0d1b2a;
+  margin: 0;
+}
+
+.toggle {
+  display: flex;
+  background: #e2e8f0;
+  border-radius: 8px;
+  padding: 3px;
+  gap: 3px;
+}
+
+.toggle button {
+  border: none;
+  background: transparent;
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #475569;
+  transition: all 0.15s;
+}
+
+.toggle button.active {
+  background: white;
+  color: #0d1b2a;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+/* Teams grid */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  background: white;
+  border-radius: 10px;
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+  border-left: 4px solid var(--accent);
+  position: relative;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.rank {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 0.7rem;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.info {
+  flex: 1;
+  min-width: 0;
+}
+
+.teamName {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.odds {
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.person {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 12px;
+  color: #0d1b2a;
+  white-space: nowrap;
+  max-width: 70px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* People grid */
+.peopleGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.personCard {
+  background: white;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+}
+
+.personHeader {
+  padding: 12px 14px;
+  border-bottom: 3px solid var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.personName {
+  font-weight: 700;
+  font-size: 1rem;
+  color: #0d1b2a;
+}
+
+.personBest {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.personTeamRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.personTeamRow:last-child {
+  border-bottom: none;
+}
+
+.personTeamRow span:nth-child(2) {
+  flex: 1;
+  font-size: 0.875rem;
+  color: #1e293b;
+}
+
+.smallOdds {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}

@@ -1,0 +1,209 @@
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.tabs button {
+  border: none;
+  background: #e2e8f0;
+  padding: 8px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #475569;
+  transition: all 0.15s;
+}
+
+.tabs button.active {
+  background: #0d1b2a;
+  color: white;
+}
+
+.loading, .error, .empty {
+  padding: 40px;
+  text-align: center;
+  color: #64748b;
+}
+
+.error { color: #dc2626; }
+
+/* Groups */
+.groupsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 20px;
+}
+
+.groupCard {
+  background: white;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+}
+
+.groupTitle {
+  background: #0d1b2a;
+  color: #e8c84a;
+  margin: 0;
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.table thead tr {
+  background: #f8fafc;
+}
+
+.table th {
+  padding: 6px 8px;
+  text-align: center;
+  color: #94a3b8;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.teamCol { text-align: left !important; padding-left: 12px !important; }
+
+.table td {
+  padding: 8px;
+  text-align: center;
+  border-top: 1px solid #f1f5f9;
+  color: #334155;
+}
+
+.teamCell {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px !important;
+  text-align: left !important;
+}
+
+.espnTeamName {
+  flex: 1;
+  font-weight: 500;
+}
+
+.ownerBadge {
+  font-size: 0.7rem;
+  background: #e8c84a;
+  color: #0d1b2a;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Fixtures */
+.fixtures {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fixtureRow {
+  background: white;
+  border-radius: 10px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+}
+
+.fixtureRow.live {
+  border-left: 4px solid #22c55e;
+}
+
+.fixtureDate {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-bottom: 8px;
+}
+
+.liveDot {
+  color: #22c55e;
+  font-weight: 700;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.fixtureTeams {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.teamSlot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.teamSlot.right {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+
+.slotInfo {
+  display: flex;
+  flex-direction: column;
+}
+
+.slotName {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #1e293b;
+}
+
+.slotOwner {
+  font-size: 0.7rem;
+  color: #e8c84a;
+  font-weight: 600;
+  background: #0d1b2a;
+  padding: 1px 6px;
+  border-radius: 8px;
+  width: fit-content;
+}
+
+.vs {
+  width: 80px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.vsText {
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.score {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #0d1b2a;
+}
+
+.fixtureGroup {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-top: 6px;
+}

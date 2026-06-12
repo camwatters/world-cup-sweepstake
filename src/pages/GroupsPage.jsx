@@ -289,14 +289,24 @@ function TeamSlot({ entry, team, right }) {
 }
 
 function resolveSlot(label, qualifiers) {
-  const { winners, runnersUp, best8thirds } = qualifiers;
+  const { winners, runnersUp, allThirds, best8thirds } = qualifiers;
   const winM = label.match(/^Winner Group ([A-L])$/);
   if (winM) return { label, team: winners[winM[1]] || null };
   const runM = label.match(/^Runner-up Group ([A-L])$/);
   if (runM) return { label, team: runnersUp[runM[1]] || null };
   if (label.startsWith("Best 3rd")) {
-    const count = best8thirds.length;
-    return { label, team: count >= 8 ? "(TBD from 3rd)" : `(best 8 of 12 thirds, ${count} groups done)`, muted: true };
+    const groupMatch = label.match(/Best 3rd ([A-L/]+)/);
+    if (groupMatch && allThirds.length > 0) {
+      const eligible = new Set(groupMatch[1].split("/"));
+      const best8set = new Set(best8thirds);
+      // Best qualifying third from eligible groups (in top-8 rank order)
+      const candidate = allThirds.find((t) => eligible.has(t.group) && best8set.has(t.name));
+      if (candidate) return { label, team: candidate.name, tentative: best8thirds.length < 8 };
+      // Fallback: best third from eligible groups even if outside top 8 yet
+      const fallback = allThirds.find((t) => eligible.has(t.group));
+      if (fallback) return { label, team: fallback.name, tentative: true };
+    }
+    return { label, team: null };
   }
   return { label, team: null };
 }
@@ -372,7 +382,7 @@ function BracketTab({ knockoutEvents, qualifiers }) {
   return (
     <div className={styles.bracket}>
       <div className={styles.bracketBanner}>
-        <span>Group stage ends ~26 Jun · Knockout stage begins 28 Jun · Teams TBD</span>
+        <span>Group stage ends ~26 Jun · Knockout stage begins 28 Jun · <strong>*</strong> = provisional based on current standings</span>
       </div>
       <div className={styles.bracketRound}>
         <h3 className={styles.bracketRoundTitle}>Round of 32</h3>
@@ -389,14 +399,14 @@ function BracketTab({ knockoutEvents, qualifiers }) {
                   <div className={styles.staticSlot}>
                     {homeEntry && <Flag code={homeEntry.flag} size={18} />}
                     <div>
-                      <div className={styles.staticTeam}>{home.team || home.label}</div>
+                      <div className={styles.staticTeam}>{home.team || home.label}{home.tentative ? <span className={styles.tentative}> *</span> : null}</div>
                       {home.team && <div className={styles.staticSub}>{home.label}</div>}
                     </div>
                   </div>
                   <span className={styles.staticVs}>vs</span>
                   <div className={`${styles.staticSlot} ${styles.staticSlotRight}`}>
                     <div style={{ textAlign: "right" }}>
-                      <div className={styles.staticTeam}>{away.team || away.label}</div>
+                      <div className={styles.staticTeam}>{away.team || away.label}{away.tentative ? <span className={styles.tentative}> *</span> : null}</div>
                       {away.team && <div className={styles.staticSub}>{away.label}</div>}
                     </div>
                     {awayEntry && <Flag code={awayEntry.flag} size={18} />}

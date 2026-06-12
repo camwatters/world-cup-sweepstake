@@ -216,7 +216,7 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
       const sb=groupRank[best?.team]; if(!sb) return t;
       if(s.pts!==sb.pts) return s.pts<sb.pts?t:best;
       if(s.gd!==sb.gd) return s.gd<sb.gd?t:best;
-      return t.odds>best.odds?t:best;
+      return Math.random()<0.5?t:best; // random tiebreak among equally bad teams
     }, null);
     add(worstOverall, 'worstOverall', 20);
   }

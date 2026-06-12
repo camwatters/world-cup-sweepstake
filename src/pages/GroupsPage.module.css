@@ -473,6 +473,13 @@
   margin-top: 1px;
 }
 
+.staticOwner {
+  font-size: 0.68rem;
+  color: var(--accent);
+  font-weight: 600;
+  margin-top: 1px;
+}
+
 .tentative {
   color: var(--accent);
   font-size: 0.75rem;

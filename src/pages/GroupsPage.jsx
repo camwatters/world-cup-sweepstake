@@ -447,6 +447,7 @@ function BracketTab({ knockoutEvents, qualifiers }) {
                     <div>
                       <div className={styles.staticTeam}>{home.team || home.label}{home.tentative ? <span className={styles.tentative}> *</span> : null}</div>
                       {home.team && <div className={styles.staticSub}>{home.label}</div>}
+                      {homeEntry?.person && <div className={styles.staticOwner}>{homeEntry.person}</div>}
                     </div>
                   </div>
                   <span className={styles.staticVs}>vs</span>
@@ -454,6 +455,7 @@ function BracketTab({ knockoutEvents, qualifiers }) {
                     <div style={{ textAlign: "right" }}>
                       <div className={styles.staticTeam}>{away.team || away.label}{away.tentative ? <span className={styles.tentative}> *</span> : null}</div>
                       {away.team && <div className={styles.staticSub}>{away.label}</div>}
+                      {awayEntry?.person && <div className={styles.staticOwner}>{awayEntry.person}</div>}
                     </div>
                     {awayEntry && <Flag code={awayEntry.flag} size={18} />}
                   </div>

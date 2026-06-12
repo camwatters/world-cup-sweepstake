@@ -19,8 +19,9 @@ function getTier(odds) {
 }
 
 function fmtOdds(o) {
-  if (o >= 1000) return (o / 1000).toFixed(1).replace(".0", "") + "k";
-  return String(o);
+  const n = o - 1;
+  if (n >= 1000) return (n / 1000).toFixed(1).replace(".0", "") + "k";
+  return String(n);
 }
 
 const people = [...new Set(draw.map((d) => d.person).filter(Boolean))];
@@ -51,7 +52,7 @@ export default function DrawPage() {
       <div className={styles.statsBar}>
         <div className={styles.stat}><strong>{draw.length}</strong> teams</div>
         <div className={styles.stat}><strong>{people.length}</strong> players</div>
-        <div className={styles.stat}>Favourite: <strong>{sorted[0].team}</strong></div>
+        <div className={styles.stat}>Favourite: <strong>{sorted[0].team}</strong> ({fmtOdds(sorted[0].odds)}/1)</div>
       </div>
 
       {view === "teams" ? <TeamsView /> : <PeopleView />}

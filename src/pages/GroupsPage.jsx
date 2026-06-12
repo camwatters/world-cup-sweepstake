@@ -15,7 +15,7 @@ function scoreboardUrl() {
 }
 
 const CACHE_KEY_STANDINGS = "espn_standings";
-const CACHE_KEY_SCOREBOARD = "espn_scoreboard";
+const CACHE_KEY_SCOREBOARD = `espn_scoreboard_${new Date().toISOString().slice(0, 10)}`;
 
 const ESPN_ALIASES = {
   "czechia": "czech republic",

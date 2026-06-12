@@ -20,7 +20,6 @@ function getTier(odds) {
 
 function fmtOdds(o) {
   const n = o - 1;
-  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(".0", "")}k/1`;
   if (Number.isInteger(n)) return `${n}/1`;
   return `${n * 2}/2`;
 }

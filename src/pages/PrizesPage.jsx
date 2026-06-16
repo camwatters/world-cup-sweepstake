@@ -115,7 +115,7 @@ draw.forEach(e => {
 
 // Hardcoded current holders (manually updated)
 const MANUAL_CURRENT = {
-  gott: { entry: draw.find(t => t.team === "Sweden"), quality: 0.8, perGameProb: 0.08 },
+  gott: { entry: draw.find(t => t.team === "France"), quality: 0.9, perGameProb: 0.03 },
 };
 
 export default function PrizesPage() {

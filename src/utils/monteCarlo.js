@@ -65,7 +65,7 @@ const GROUP_SCHEDULE = [
 ];
 
 // Seed from real standings, simulate only remaining matchdays
-function simPartialGroup(names, overrideTeams, matchdaysPlayed) {
+function simPartialGroup(names, overrideTeams, matchdaysPlayed, gottPairs) {
   const om = Object.fromEntries(overrideTeams.map(t => [t.teamName, t]));
   const teams = names.map(n => teamMap[n]);
   const pts = names.map(n => om[n]?.pts ?? 0);
@@ -73,6 +73,7 @@ function simPartialGroup(names, overrideTeams, matchdaysPlayed) {
   const gf  = names.map(n => om[n]?.gf  ?? 0);
   for (let md = matchdaysPlayed; md < 3; md++) {
     for (const [i, j] of GROUP_SCHEDULE[md]) {
+      gottPairs.push([teams[i], teams[j]]);
       const iWins = Math.random() < teams[i].p / (teams[i].p + teams[j].p);
       let gi = poisson(1.3), gj = poisson(1.3);
       if (iWins && gi <= gj) gi = gj + 1;
@@ -88,11 +89,12 @@ function simPartialGroup(names, overrideTeams, matchdaysPlayed) {
   return idx.map(i => ({ team: teams[i], pts: pts[i], gd: gd[i], gf: gf[i] }));
 }
 
-function simGroup(names) {
+function simGroup(names, gottPairs) {
   const teams = names.map(n => teamMap[n]);
   const pts = [0,0,0,0], gd = [0,0,0,0], gf = [0,0,0,0];
   for (let i = 0; i < 4; i++) {
     for (let j = i + 1; j < 4; j++) {
+      gottPairs.push([teams[i], teams[j]]);
       const iWins = Math.random() < teams[i].p / (teams[i].p + teams[j].p);
       // Sample realistic goal counts; force winner to score more
       let gi = poisson(1.3), gj = poisson(1.3);
@@ -128,10 +130,6 @@ function assignThirds(best8) {
 
 const PRIZE_KEYS = ['winner','runnerUp','third','pott','gott','worstGroup','worstL16','worstQF','worstOverall'];
 
-function gottGames(round) {
-  return { group:3, r32:4, r16:5, qf:6, sf:7, '3rd':8, '4th':8, final:8, winner:8 }[round] ?? 3;
-}
-
 // groupOverrides: { letter: { teams:[{teamName,pts,gd,gf}], complete:bool, matchdaysPlayed:int } }
 // gottConfig: { teamName, quality, perGameProb } — current GOTT holder; perGameProb = chance any one game beats them
 export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null) {
@@ -161,6 +159,7 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     const groupRank = {};
     const grpResult = {};
     const allThirds = [];
+    const gottPairs = [];
 
     for (const [letter, names] of Object.entries(GROUPS)) {
       let sorted;
@@ -170,9 +169,9 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
           .map(({ teamName, pts, gd, gf }) => ({ team: teamMap[teamName], pts, gd, gf: gf ?? 0 }))
           .filter(r => r.team);
       } else if (ov) {
-        sorted = simPartialGroup(names, ov.teams, ov.matchdaysPlayed);
+        sorted = simPartialGroup(names, ov.teams, ov.matchdaysPlayed, gottPairs);
       } else {
-        sorted = simGroup(names);
+        sorted = simGroup(names, gottPairs);
       }
       grpResult[letter] = sorted;
       sorted.forEach(r => { groupRank[r.team.team] = { pts: r.pts, gd: r.gd, gf: r.gf ?? 0 }; });
@@ -197,6 +196,7 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     function simRound(pairs, round) {
       return pairs.map(([a, b]) => {
         if (!a) return b; if (!b) return a;
+        gottPairs.push([a, b]);
         const w = matchSim(a, b), l = w === a ? b : a;
         exit[l.team] = round; return w;
       });
@@ -209,14 +209,17 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     SF.forEach(([a,b]) => {
       const ta = qfW[a], tb = qfW[b];
       if (!ta||!tb) { sfW.push(ta??tb); return; }
+      gottPairs.push([ta, tb]);
       const w = matchSim(ta,tb), l = w===ta?tb:ta;
       exit[l.team]='sf'; sfW.push(w); sfL.push(l);
     });
     if (sfL.length===2) {
+      gottPairs.push([sfL[0], sfL[1]]);
       const w=matchSim(sfL[0],sfL[1]), l=w===sfL[0]?sfL[1]:sfL[0];
       exit[w.team]='3rd'; exit[l.team]='4th';
     }
     if (sfW[0]&&sfW[1]) {
+      gottPairs.push([sfW[0], sfW[1]]);
       const w=matchSim(sfW[0],sfW[1]), l=w===sfW[0]?sfW[1]:sfW[0];
       exit[w.team]='winner'; exit[l.team]='final';
     }
@@ -250,21 +253,16 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
       add(pottWinner,'pott',40);
     }
 
-    // GOTT: each game samples a goal quality; calibrated so P(quality > currentBest) = perGameProb
+    // GOTT: sample one goal quality per game; best across all games wins
     {
       let gottBest = gottConfig?.quality ?? -1;
       let gottWinner = gottConfig ? (teamMap[gottConfig.teamName] ?? null) : null;
-      for (const t of TEAMS) {
-        const games = gottGames(exit[t.team] ?? 'group');
-        let best = 0;
-        if (gottConfig && t.team === gottConfig.teamName) {
-          best = gottConfig.quality; // committed from group stage
-          const ko = Math.max(0, games - 3);
-          for (let g = 0; g < ko; g++) best = Math.max(best, gottSample());
-        } else {
-          for (let g = 0; g < games; g++) best = Math.max(best, gottSample());
+      for (const [a, b] of gottPairs) {
+        const q = gottSample();
+        if (q > gottBest) {
+          gottBest = q;
+          gottWinner = Math.random() < 0.5 ? a : b;
         }
-        if (best > gottBest) { gottBest = best; gottWinner = t; }
       }
       if (gottWinner) add(gottWinner, 'gott', 40);
     }

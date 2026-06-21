@@ -3,6 +3,7 @@ import { draw } from "../data/draw";
 import Flag from "../components/Flag";
 import { runSimulations } from "../utils/monteCarlo";
 import { getCached, setCache, TTL } from "../utils/cache";
+import { fetchCurrentOdds, getCachedOddsAge } from "../utils/oddsApi";
 import styles from "./PrizesPage.module.css";
 
 const PRIZES = [
@@ -125,6 +126,8 @@ export default function PrizesPage() {
   const [expanded, setExpanded]     = useState(null);
   const [worstTeam, setWorstTeam]   = useState(null);
   const [standingsRef, setStandingsRef] = useState(null);
+  const [currentOdds, setCurrentOdds] = useState(null);
+  const [oddsAge, setOddsAge]       = useState(null);
 
   useEffect(() => {
     async function load() {
@@ -135,6 +138,11 @@ export default function PrizesPage() {
           if (res.ok) { s = await res.json(); setCache(CACHE_KEY, s); }
         }
         if (s) { setStandingsRef(s); setWorstTeam(computeWorstTeam(s)); }
+      } catch {}
+      try {
+        const odds = await fetchCurrentOdds();
+        setCurrentOdds(odds);
+        setOddsAge(getCachedOddsAge());
       } catch {}
     }
     load();
@@ -163,7 +171,7 @@ export default function PrizesPage() {
     setTimeout(() => {
       const gottEntry = MANUAL_CURRENT.gott;
       const gottConfig = gottEntry ? { teamName: gottEntry.entry.team, quality: gottEntry.quality, perGameProb: gottEntry.perGameProb } : null;
-      const result = runSimulations(10000, groupOverrides, gottConfig);
+      const result = runSimulations(10000, groupOverrides, gottConfig, currentOdds);
       setResults(result);
       setRunning(false);
     }, 10);
@@ -213,7 +221,10 @@ export default function PrizesPage() {
           <div>
             <h2 className={styles.simTitle}>Expected Value Calculator</h2>
             <p className={styles.simDesc}>
-              Simulates 10,000 tournaments using bookmaker odds. Pulls live standings — completed groups are locked in, the rest are simulated.
+              Simulates 10,000 tournaments using {currentOdds
+                ? <>current bookmaker odds{oddsAge !== null ? ` (updated ${Math.round(oddsAge / 60000)}m ago)` : ''}</>
+                : 'pre-tournament odds'
+              }. Pulls live standings — completed groups are locked in, the rest are simulated.
             </p>
           </div>
           <button className={styles.simBtn} onClick={runSim} disabled={running}>

@@ -65,9 +65,9 @@ const GROUP_SCHEDULE = [
 ];
 
 // Seed from real standings, simulate only remaining matchdays
-function simPartialGroup(names, overrideTeams, matchdaysPlayed, gottPairs) {
+function simPartialGroup(names, overrideTeams, matchdaysPlayed, gottPairs, tm) {
   const om = Object.fromEntries(overrideTeams.map(t => [t.teamName, t]));
-  const teams = names.map(n => teamMap[n]);
+  const teams = names.map(n => tm[n]);
   const pts = names.map(n => om[n]?.pts ?? 0);
   const gd  = names.map(n => om[n]?.gd  ?? 0);
   const gf  = names.map(n => om[n]?.gf  ?? 0);
@@ -89,8 +89,8 @@ function simPartialGroup(names, overrideTeams, matchdaysPlayed, gottPairs) {
   return idx.map(i => ({ team: teams[i], pts: pts[i], gd: gd[i], gf: gf[i] }));
 }
 
-function simGroup(names, gottPairs) {
-  const teams = names.map(n => teamMap[n]);
+function simGroup(names, gottPairs, tm) {
+  const teams = names.map(n => tm[n]);
   const pts = [0,0,0,0], gd = [0,0,0,0], gf = [0,0,0,0];
   for (let i = 0; i < 4; i++) {
     for (let j = i + 1; j < 4; j++) {
@@ -131,19 +131,31 @@ function assignThirds(best8) {
 const PRIZE_KEYS = ['winner','runnerUp','third','pott','gott','worstGroup','worstL16','worstQF','worstOverall'];
 
 // groupOverrides: { letter: { teams:[{teamName,pts,gd,gf}], complete:bool, matchdaysPlayed:int } }
-// gottConfig: { teamName, quality, perGameProb } — current GOTT holder; perGameProb = chance any one game beats them
-export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null) {
+// gottConfig: { teamName, quality, perGameProb } — current GOTT holder
+// oddsOverrides: { teamName: decimalOdds } — current bookmaker odds; affects only match-sim
+//   probabilities (t.p). Pre-tournament t.odds is preserved for "worst team" prize calculations.
+export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null, oddsOverrides = null) {
+  // Build local team list: override p (probability) only, keeping odds (pre-tournament) intact
+  let localTeams = TEAMS;
+  let localTeamMap = teamMap;
+  if (oddsOverrides && Object.keys(oddsOverrides).length > 0) {
+    const rawP = draw.map(e => 1 / (oddsOverrides[e.team] ?? e.odds));
+    const sum = rawP.reduce((a, b) => a + b, 0);
+    localTeams = TEAMS.map((e, i) => ({ ...e, p: rawP[i] / sum }));
+    localTeamMap = Object.fromEntries(localTeams.map(t => [t.team, t]));
+  }
+
   const personTotal = {};
   const personBreakdown = {};
   const personBreakdownTeam = {};
   const teamTotal = {};
-  const people = [...new Set(TEAMS.map(t => t.person).filter(Boolean))];
+  const people = [...new Set(localTeams.map(t => t.person).filter(Boolean))];
   people.forEach(p => {
     personTotal[p] = 0;
     personBreakdown[p] = Object.fromEntries(PRIZE_KEYS.map(k => [k, 0]));
     personBreakdownTeam[p] = {};
   });
-  TEAMS.forEach(t => { teamTotal[t.team] = 0; });
+  localTeams.forEach(t => { teamTotal[t.team] = 0; });
 
   // Goal quality sampler: power distribution calibrated so P(quality > currentBest) = perGameProb
   const gottSample = (() => {
@@ -166,12 +178,12 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
       const ov = groupOverrides[letter];
       if (ov?.complete) {
         sorted = ov.teams
-          .map(({ teamName, pts, gd, gf }) => ({ team: teamMap[teamName], pts, gd, gf: gf ?? 0 }))
+          .map(({ teamName, pts, gd, gf }) => ({ team: localTeamMap[teamName], pts, gd, gf: gf ?? 0 }))
           .filter(r => r.team);
       } else if (ov) {
-        sorted = simPartialGroup(names, ov.teams, ov.matchdaysPlayed, gottPairs);
+        sorted = simPartialGroup(names, ov.teams, ov.matchdaysPlayed, gottPairs, localTeamMap);
       } else {
-        sorted = simGroup(names, gottPairs);
+        sorted = simGroup(names, gottPairs, localTeamMap);
       }
       grpResult[letter] = sorted;
       sorted.forEach(r => { groupRank[r.team.team] = { pts: r.pts, gd: r.gd, gf: r.gf ?? 0 }; });
@@ -236,8 +248,9 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     };
     const EXIT_ORDER = ['group','r32','r16','qf','sf','4th','3rd','final','winner'];
     const exitRank = r => EXIT_ORDER.indexOf(r ?? 'group');
-    const byExit = r => TEAMS.filter(t => exit[t.team]===r);
-    const reachedOrBeyond = stage => TEAMS.filter(t => exitRank(exit[t.team]) > exitRank(stage));
+    const byExit = r => localTeams.filter(t => exit[t.team]===r);
+    const reachedOrBeyond = stage => localTeams.filter(t => exitRank(exit[t.team]) > exitRank(stage));
+    // worst() uses t.odds (pre-tournament) — intentional, current odds not used here
     const worst = ts => ts.length ? ts.reduce((a,b) => a.odds>b.odds?a:b) : null;
 
     add(byExit('winner')[0], 'winner', 200);
@@ -256,7 +269,7 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     // GOTT: sample one goal quality per game; best across all games wins
     {
       let gottBest = gottConfig?.quality ?? -1;
-      let gottWinner = gottConfig ? (teamMap[gottConfig.teamName] ?? null) : null;
+      let gottWinner = gottConfig ? (localTeamMap[gottConfig.teamName] ?? null) : null;
       for (const [a, b] of gottPairs) {
         const q = gottSample();
         if (q > gottBest) {
@@ -270,7 +283,7 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     add(worst(reachedOrBeyond('r32')),  'worstL16', 20);
     add(worst(reachedOrBeyond('r16')),  'worstQF', 20);
 
-    const worstOverall = TEAMS.reduce((best,t) => {
+    const worstOverall = localTeams.reduce((best,t) => {
       const s=groupRank[t.team]; if(!s) return best;
       const sb=groupRank[best?.team]; if(!sb) return t;
       if(s.pts!==sb.pts) return s.pts<sb.pts?t:best;

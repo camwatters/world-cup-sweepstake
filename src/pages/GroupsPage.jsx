@@ -66,11 +66,13 @@ function sortEntries(entries) {
 }
 
 function computeQualifiers(groups) {
-  const winners = {}, runnersUp = {}, allThirds = [];
+  const winners = {}, runnersUp = {}, allThirds = [], completedGroups = new Set();
   groups.forEach((group) => {
     const letter = (group.name ?? "").replace("Group ", "").trim();
     if (!letter) return;
     const sorted = sortEntries(group.standings?.entries ?? []);
+    const allPlayed3 = sorted.length === 4 && sorted.every(e => (getStats(e).gamesPlayed ?? 0) >= 3);
+    if (allPlayed3) completedGroups.add(letter);
     if (sorted[0]) winners[letter] = sorted[0].team?.displayName ?? "";
     if (sorted[1]) runnersUp[letter] = sorted[1].team?.displayName ?? "";
     if (sorted[2]) {
@@ -89,7 +91,7 @@ function computeQualifiers(groups) {
   // Sort by pts → GD → GF (FIFA tiebreak criteria for 3rd-place ranking)
   allThirds.sort((a, b) => b.points - a.points || b.gd - a.gd || b.gf - a.gf);
   const best8 = new Set(allThirds.slice(0, 8).map((t) => t.name));
-  return { winners, runnersUp, allThirds, best8thirds: [...best8] };
+  return { winners, runnersUp, allThirds, best8thirds: [...best8], completedGroups };
 }
 
 // Static bracket from FIFA schedule (teams TBD after group stage, June 26+)
@@ -335,19 +337,26 @@ function TeamSlot({ entry, team, right }) {
 }
 
 function resolveSlot(label, qualifiers) {
-  const { winners, runnersUp, allThirds, best8thirds } = qualifiers;
+  const { winners, runnersUp, allThirds, best8thirds, completedGroups } = qualifiers;
   const winM = label.match(/^Winner Group ([A-L])$/);
-  if (winM) return { label, team: winners[winM[1]] || null };
+  if (winM) {
+    const letter = winM[1];
+    return { label, team: winners[letter] || null, guaranteed: completedGroups.has(letter) };
+  }
   const runM = label.match(/^Runner-up Group ([A-L])$/);
-  if (runM) return { label, team: runnersUp[runM[1]] || null };
+  if (runM) {
+    const letter = runM[1];
+    return { label, team: runnersUp[letter] || null, guaranteed: completedGroups.has(letter) };
+  }
   if (label.startsWith("Best 3rd")) {
     const groupMatch = label.match(/Best 3rd ([A-L/]+)/);
     if (groupMatch && allThirds.length > 0) {
       const eligible = new Set(groupMatch[1].split("/"));
       const best8set = new Set(best8thirds);
+      const allGroupsDone = completedGroups.size >= 12;
       // Best qualifying third from eligible groups (in top-8 rank order)
       const candidate = allThirds.find((t) => eligible.has(t.group) && best8set.has(t.name));
-      if (candidate) return { label, team: candidate.name, tentative: best8thirds.length < 8 };
+      if (candidate) return { label, team: candidate.name, tentative: best8thirds.length < 8 || !allGroupsDone, guaranteed: allGroupsDone };
       // Fallback: best third from eligible groups even if outside top 8 yet
       const fallback = allThirds.find((t) => eligible.has(t.group));
       if (fallback) return { label, team: fallback.name, tentative: true };
@@ -445,7 +454,7 @@ function BracketTab({ knockoutEvents, qualifiers }) {
                   <div className={styles.staticSlot}>
                     {homeEntry && <Flag code={homeEntry.flag} size={18} />}
                     <div>
-                      <div className={styles.staticTeam}>{home.team || home.label}{home.tentative ? <span className={styles.tentative}> *</span> : null}</div>
+                      <div className={`${styles.staticTeam} ${home.guaranteed ? styles.staticTeamConfirmed : ""}`}>{home.team || home.label}{home.tentative ? <span className={styles.tentative}> *</span> : null}</div>
                       {home.team && <div className={styles.staticSub}>{home.label}</div>}
                       {homeEntry?.person && <div className={styles.staticOwner}>{homeEntry.person}</div>}
                     </div>
@@ -453,7 +462,7 @@ function BracketTab({ knockoutEvents, qualifiers }) {
                   <span className={styles.staticVs}>vs</span>
                   <div className={`${styles.staticSlot} ${styles.staticSlotRight}`}>
                     <div style={{ textAlign: "right" }}>
-                      <div className={styles.staticTeam}>{away.team || away.label}{away.tentative ? <span className={styles.tentative}> *</span> : null}</div>
+                      <div className={`${styles.staticTeam} ${away.guaranteed ? styles.staticTeamConfirmed : ""}`}>{away.team || away.label}{away.tentative ? <span className={styles.tentative}> *</span> : null}</div>
                       {away.team && <div className={styles.staticSub}>{away.label}</div>}
                       {awayEntry?.person && <div className={styles.staticOwner}>{awayEntry.person}</div>}
                     </div>

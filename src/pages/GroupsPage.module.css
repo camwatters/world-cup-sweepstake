@@ -485,6 +485,10 @@
   font-size: 0.75rem;
 }
 
+.staticTeamConfirmed {
+  color: #22c55e;
+}
+
 /* Third-place table */
 .thirdsTable {
   margin-top: 8px;

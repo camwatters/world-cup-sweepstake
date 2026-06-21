@@ -111,17 +111,24 @@ function buildFixtureData(historyEvents, upcomingEvents, groups) {
     });
   });
 
-  // Remaining fixtures: strict group-stage filter on upcoming events
+  // Remaining fixtures: accept if groups.name=group-stage OR both teams in the same known group.
+  // ESPN doesn't always set groups.name on upcoming events, so the team-membership fallback
+  // prevents falsely treating a group as "complete" (which would incorrectly mark all
+  // current leaders as guaranteed qualifiers).
   (upcomingEvents ?? []).forEach((event) => {
     const comp = event.competitions?.[0];
-    if ((comp?.groups?.name ?? "") !== "group-stage") return;
     if (comp?.status?.type?.completed) return;
     const home = comp.competitors?.find((c) => c.homeAway === "home");
     const away = comp.competitors?.find((c) => c.homeAway === "away");
     if (!home || !away) return;
     const homeName = home.team?.displayName ?? "";
     const awayName = away.team?.displayName ?? "";
-    const letter = teamToGroup[homeName.toLowerCase()] ?? teamToGroup[awayName.toLowerCase()];
+    const homeGroup = teamToGroup[homeName.toLowerCase()];
+    const awayGroup = teamToGroup[awayName.toLowerCase()];
+    const groupName = comp?.groups?.name ?? "";
+    const isGroupStage = groupName === "group-stage" || (homeGroup && homeGroup === awayGroup);
+    if (!isGroupStage) return;
+    const letter = homeGroup ?? awayGroup;
     if (!letter) return;
     ensure(letter);
     groupFixtures[letter].remaining.push({ home: homeName, away: awayName });
@@ -146,9 +153,17 @@ function computeFeasiblePositions(groupEntry, fixtureData) {
       pts: st.points ?? 0,
       gd: st.pointDifferential ?? 0,
       gf: st.pointsFor ?? 0,
+      played: st.gamesPlayed ?? 0,
     };
   });
   if (teams.length === 0) return null;
+
+  const remaining = fixtures.remaining;
+
+  // If we found 0 remaining games but the group isn't actually finished
+  // (some team hasn't played all 3 matchdays), our data fetch was incomplete.
+  // Return null rather than falsely marking current leaders as guaranteed.
+  if (remaining.length === 0 && teams.some((t) => t.played < 3)) return null;
 
   // Build H2H lookup from completed matches
   const h2h = {};
@@ -179,7 +194,6 @@ function computeFeasiblePositions(groupEntry, fixtureData) {
     });
   }
 
-  const remaining = fixtures.remaining;
   const possiblePositions = {};
   teams.forEach((t) => (possiblePositions[t.name] = new Set()));
 

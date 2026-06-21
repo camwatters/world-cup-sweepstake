@@ -84,8 +84,8 @@ function computeWorstQualified(standings) {
   let worst = null;
   for (const group of groups) {
     const entries = group.standings?.entries ?? [];
-    const minPlayed = Math.min(...entries.map(e => getStats(e).gamesPlayed ?? 0));
-    if (minPlayed < 3) continue; // group not yet complete
+    const maxPlayed = Math.max(...entries.map(e => getStats(e).gamesPlayed ?? 0));
+    if (maxPlayed === 0) continue; // no games played in this group yet
     const sorted = [...entries].sort((a, b) => {
       const sa = getStats(a), sb = getStats(b);
       return (sb.points??0)-(sa.points??0) || (sb.pointDifferential??0)-(sa.pointDifferential??0) || (sb.pointsFor??0)-(sa.pointsFor??0);

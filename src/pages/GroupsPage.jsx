@@ -327,6 +327,7 @@ export default function GroupsPage() {
   const groups = standings?.children ?? [];
   const events = scoreboard?.events ?? [];
   const fixtureData = buildFixtureData(historyEvents, events, groups);
+  const qualifiers = computeQualifiers(groups, fixtureData);
 
   const knockoutEvents = events.filter((e) => {
     const groupName = e.competitions?.[0]?.groups?.name ?? "";
@@ -346,7 +347,12 @@ export default function GroupsPage() {
           {!standings && <p className={styles.loading}>Loading…</p>}
           {groups.length === 0 && standings && <p className={styles.empty}>No group data available yet.</p>}
           {groups.map((group) => (
-            <GroupTable key={group.uid ?? group.name} group={group} />
+            <GroupTable
+              key={group.uid ?? group.name}
+              group={group}
+              guaranteedWinners={qualifiers.guaranteedWinners}
+              guaranteedRunnersUp={qualifiers.guaranteedRunnersUp}
+            />
           ))}
         </div>
       )}
@@ -356,13 +362,13 @@ export default function GroupsPage() {
       )}
 
       {tab === "bracket" && (
-        <BracketTab knockoutEvents={knockoutEvents} qualifiers={computeQualifiers(groups, fixtureData)} />
+        <BracketTab knockoutEvents={knockoutEvents} qualifiers={qualifiers} />
       )}
     </div>
   );
 }
 
-function GroupTable({ group }) {
+function GroupTable({ group, guaranteedWinners = new Set(), guaranteedRunnersUp = new Set() }) {
   const entries = [...(group.standings?.entries ?? [])].sort((a, b) => {
     const sa = Object.fromEntries((a.stats ?? []).map((s) => [s.name, s.value]));
     const sb = Object.fromEntries((b.stats ?? []).map((s) => [s.name, s.value]));
@@ -390,6 +396,7 @@ function GroupTable({ group }) {
             const stats = Object.fromEntries(
               (entry.stats ?? []).map((s) => [s.name, s.value])
             );
+            const isGuaranteed = guaranteedWinners.has(teamName) || guaranteedRunnersUp.has(teamName);
             return (
               <tr key={entry.team?.id ?? teamName}>
                 <td className={styles.teamCell}>
@@ -404,7 +411,7 @@ function GroupTable({ group }) {
                       style={{ objectFit: "contain" }}
                     />
                   )}
-                  <span className={styles.espnTeamName}>{teamName}</span>
+                  <span className={`${styles.espnTeamName} ${isGuaranteed ? styles.staticTeamConfirmed : ""}`}>{teamName}</span>
                   {sweepEntry?.person && (
                     <span className={styles.ownerBadge}>{sweepEntry.person}</span>
                   )}

@@ -14,7 +14,7 @@ const PRIZES = [
   { name: "Goal of the Tournament",              amount: 40,  currentKey: "gott" },
   { name: "Worst Team Overall",                  amount: 20,  currentKey: "worstOverall" },
   { name: "Worst Team to exit Group Stage",      amount: 20  },
-  { name: "Worst Team to reach Last 16",         amount: 20  },
+  { name: "Worst Team to reach Last 16",         amount: 20,  currentKey: "worstL16" },
   { name: "Worst Team to reach Quarter-Finals",  amount: 20  },
 ];
 
@@ -78,6 +78,29 @@ function computeWorstTeam(standings) {
   return worst ? (drawLookup[worst.teamName.toLowerCase()] ?? null) : null;
 }
 
+function computeWorstQualified(standings) {
+  const groups = standings?.children ?? standings?.standings?.groups ?? [];
+  const getStats = e => Object.fromEntries((e.stats ?? []).map(s => [s.name, s.value]));
+  let worst = null;
+  for (const group of groups) {
+    const entries = group.standings?.entries ?? [];
+    const minPlayed = Math.min(...entries.map(e => getStats(e).gamesPlayed ?? 0));
+    if (minPlayed < 3) continue; // group not yet complete
+    const sorted = [...entries].sort((a, b) => {
+      const sa = getStats(a), sb = getStats(b);
+      return (sb.points??0)-(sa.points??0) || (sb.pointDifferential??0)-(sa.pointDifferential??0) || (sb.pointsFor??0)-(sa.pointsFor??0);
+    });
+    for (const entry of sorted.slice(0, 2)) {
+      const teamName = resolveEspnTeam(entry.team?.displayName ?? "");
+      if (!teamName) continue;
+      const drawEntry = drawLookup[teamName.toLowerCase()];
+      if (!drawEntry) continue;
+      if (!worst || drawEntry.odds > worst.odds) worst = drawEntry;
+    }
+  }
+  return worst;
+}
+
 function buildGroupOverrides(standings) {
   const overrides = {};
   const groups = standings?.children ?? standings?.standings?.groups ?? [];
@@ -124,7 +147,8 @@ export default function PrizesPage() {
   const [running, setRunning]       = useState(false);
   const [lockedCount, setLockedCount] = useState(null);
   const [expanded, setExpanded]     = useState(null);
-  const [worstTeam, setWorstTeam]   = useState(null);
+  const [worstTeam, setWorstTeam]       = useState(null);
+  const [worstQualified, setWorstQualified] = useState(null);
   const [standingsRef, setStandingsRef] = useState(null);
   const [currentOdds, setCurrentOdds] = useState(null);
   const [oddsAge, setOddsAge]       = useState(null);
@@ -137,7 +161,7 @@ export default function PrizesPage() {
           const res = await fetch(ESPN_STANDINGS);
           if (res.ok) { s = await res.json(); setCache(CACHE_KEY, s); }
         }
-        if (s) { setStandingsRef(s); setWorstTeam(computeWorstTeam(s)); }
+        if (s) { setStandingsRef(s); setWorstTeam(computeWorstTeam(s)); setWorstQualified(computeWorstQualified(s)); }
       } catch {}
       try {
         const odds = await fetchCurrentOdds();
@@ -151,6 +175,7 @@ export default function PrizesPage() {
   const currently = {
     gott: MANUAL_CURRENT.gott?.entry,
     worstOverall: worstTeam,
+    worstL16: worstQualified,
   };
 
   async function runSim() {

@@ -14,8 +14,15 @@ function scoreboardUrl() {
   return `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?limit=50&dates=${fmt(from)}-${fmt(to)}`;
 }
 
+// Completed group-stage results from start of tournament to today (for H2H data)
+function groupStageHistoryUrl() {
+  const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  return `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?limit=200&dates=20260612-${today}`;
+}
+
 const CACHE_KEY_STANDINGS = "espn_standings";
 const CACHE_KEY_SCOREBOARD = `espn_scoreboard_${new Date().toISOString().slice(0, 10)}`;
+const CACHE_KEY_GS_HISTORY = `espn_gs_history_${new Date().toISOString().slice(0, 10)}`;
 
 const ESPN_ALIASES = {
   "czechia": "czech republic",
@@ -65,12 +72,12 @@ function sortEntries(entries) {
   });
 }
 
-// Build per-group remaining fixtures from upcoming scoreboard events.
-// We use the regular upcoming scoreboard (already fetched) rather than a
-// separate historical endpoint, so `completed` is always empty — tiebreaks
-// fall through to overall GD rather than H2H, which is fine for the
-// "mathematically guaranteed" check in practice.
-function buildFixtureData(events, groups) {
+// Build per-group fixture data.
+// historyEvents: completed group-stage results (for H2H tiebreaker data).
+//   We don't rely on groups.name here — ESPN doesn't always set it on
+//   historical events — instead we match teams against the standings map.
+// upcomingEvents: scheduled games from the regular scoreboard (remaining fixtures).
+function buildFixtureData(historyEvents, upcomingEvents, groups) {
   const teamToGroup = {};
   groups.forEach((group) => {
     const letter = (group.name ?? "").replace("Group ", "").trim();
@@ -82,23 +89,41 @@ function buildFixtureData(events, groups) {
   });
 
   const groupFixtures = {};
+  const ensure = (l) => { if (!groupFixtures[l]) groupFixtures[l] = { completed: [], remaining: [] }; };
 
-  events.forEach((event) => {
+  // Completed results: match by team membership, ignore groups.name
+  (historyEvents ?? []).forEach((event) => {
     const comp = event.competitions?.[0];
-    // Only upcoming group-stage games (completed ones aren't in the upcoming scoreboard)
-    if ((comp?.groups?.name ?? "") !== "group-stage") return;
-    if (comp?.status?.type?.completed) return;
-
+    if (!comp?.status?.type?.completed) return;
     const home = comp.competitors?.find((c) => c.homeAway === "home");
     const away = comp.competitors?.find((c) => c.homeAway === "away");
     if (!home || !away) return;
-
     const homeName = home.team?.displayName ?? "";
     const awayName = away.team?.displayName ?? "";
     const letter = teamToGroup[homeName.toLowerCase()] ?? teamToGroup[awayName.toLowerCase()];
     if (!letter) return;
+    ensure(letter);
+    groupFixtures[letter].completed.push({
+      home: homeName,
+      away: awayName,
+      homeScore: parseInt(home.score ?? "0") || 0,
+      awayScore: parseInt(away.score ?? "0") || 0,
+    });
+  });
 
-    if (!groupFixtures[letter]) groupFixtures[letter] = { completed: [], remaining: [] };
+  // Remaining fixtures: strict group-stage filter on upcoming events
+  (upcomingEvents ?? []).forEach((event) => {
+    const comp = event.competitions?.[0];
+    if ((comp?.groups?.name ?? "") !== "group-stage") return;
+    if (comp?.status?.type?.completed) return;
+    const home = comp.competitors?.find((c) => c.homeAway === "home");
+    const away = comp.competitors?.find((c) => c.homeAway === "away");
+    if (!home || !away) return;
+    const homeName = home.team?.displayName ?? "";
+    const awayName = away.team?.displayName ?? "";
+    const letter = teamToGroup[homeName.toLowerCase()] ?? teamToGroup[awayName.toLowerCase()];
+    if (!letter) return;
+    ensure(letter);
     groupFixtures[letter].remaining.push({ home: homeName, away: awayName });
   });
 
@@ -259,6 +284,7 @@ const R32_SCHEDULE = [
 export default function GroupsPage() {
   const [standings, setStandings] = useState(null);
   const [scoreboard, setScoreboard] = useState(null);
+  const [historyEvents, setHistoryEvents] = useState(null);
   const [error, setError] = useState(null);
   const [tab, setTab] = useState("groups");
 
@@ -266,10 +292,12 @@ export default function GroupsPage() {
     Promise.all([
       fetchWithCache(ESPN_STANDINGS, CACHE_KEY_STANDINGS, TTL.STANDINGS),
       fetchWithCache(scoreboardUrl(), CACHE_KEY_SCOREBOARD, TTL.SCORES),
+      fetchWithCache(groupStageHistoryUrl(), CACHE_KEY_GS_HISTORY, TTL.SCORES).catch(() => null),
     ])
-      .then(([s, sc]) => {
+      .then(([s, sc, hist]) => {
         setStandings(s);
         setScoreboard(sc);
+        setHistoryEvents(hist?.events ?? []);
       })
       .catch((e) => setError(e.message));
   }, []);
@@ -284,7 +312,7 @@ export default function GroupsPage() {
 
   const groups = standings?.children ?? [];
   const events = scoreboard?.events ?? [];
-  const fixtureData = buildFixtureData(events, groups);
+  const fixtureData = buildFixtureData(historyEvents, events, groups);
 
   const knockoutEvents = events.filter((e) => {
     const groupName = e.competitions?.[0]?.groups?.name ?? "";

@@ -78,25 +78,42 @@ function computeWorstTeam(standings) {
   return worst ? (drawLookup[worst.teamName.toLowerCase()] ?? null) : null;
 }
 
-function computeWorstQualified(standings) {
+// A team is guaranteed top 2 if at most 1 other team can possibly reach or
+// exceed their current points (worst case: they lose all remaining games).
+// Conservative: doesn't use H2H, so may miss borderline cases, but never
+// shows a team as qualified when they aren't.
+function computeGuaranteedQualifiers(standings) {
   const groups = standings?.children ?? standings?.standings?.groups ?? [];
   const getStats = e => Object.fromEntries((e.stats ?? []).map(s => [s.name, s.value]));
-  let worst = null;
+  const guaranteed = new Set();
   for (const group of groups) {
     const entries = group.standings?.entries ?? [];
-    const maxPlayed = Math.max(...entries.map(e => getStats(e).gamesPlayed ?? 0));
-    if (maxPlayed === 0) continue; // no games played in this group yet
-    const sorted = [...entries].sort((a, b) => {
-      const sa = getStats(a), sb = getStats(b);
-      return (sb.points??0)-(sa.points??0) || (sb.pointDifferential??0)-(sa.pointDifferential??0) || (sb.pointsFor??0)-(sa.pointsFor??0);
-    });
-    for (const entry of sorted.slice(0, 2)) {
-      const teamName = resolveEspnTeam(entry.team?.displayName ?? "");
-      if (!teamName) continue;
-      const drawEntry = drawLookup[teamName.toLowerCase()];
-      if (!drawEntry) continue;
-      if (!worst || drawEntry.odds > worst.odds) worst = drawEntry;
+    if (entries.length < 4) continue;
+    for (const entry of entries) {
+      const st = getStats(entry);
+      if ((st.gamesPlayed ?? 0) === 0) continue;
+      const myPts = st.points ?? 0;
+      const canBeat = entries.filter(other => {
+        if (other === entry) return false;
+        const ost = getStats(other);
+        return (ost.points ?? 0) + 3 * (3 - (ost.gamesPlayed ?? 0)) >= myPts;
+      }).length;
+      if (canBeat <= 1) {
+        const teamName = resolveEspnTeam(entry.team?.displayName ?? "");
+        if (teamName) guaranteed.add(teamName);
+      }
     }
+  }
+  return guaranteed;
+}
+
+function computeWorstQualified(standings) {
+  const guaranteed = computeGuaranteedQualifiers(standings);
+  let worst = null;
+  for (const teamName of guaranteed) {
+    const drawEntry = drawLookup[teamName.toLowerCase()];
+    if (!drawEntry) continue;
+    if (!worst || drawEntry.odds > worst.odds) worst = drawEntry;
   }
   return worst;
 }

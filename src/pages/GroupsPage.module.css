@@ -489,6 +489,14 @@
   color: #22c55e;
 }
 
+.teamThird {
+  color: #f97316;
+}
+
+.teamEliminated {
+  color: #ef4444;
+}
+
 /* Third-place table */
 .thirdsTable {
   margin-top: 8px;

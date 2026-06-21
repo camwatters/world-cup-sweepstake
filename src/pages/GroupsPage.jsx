@@ -238,6 +238,7 @@ function computeFeasiblePositions(groupEntry, fixtureData) {
 function computeQualifiers(groups, fixtureData = {}) {
   const winners = {}, runnersUp = {}, allThirds = [], completedGroups = new Set();
   const guaranteedWinners = new Set(), guaranteedRunnersUp = new Set();
+  const guaranteedThirds = new Set(), guaranteedFourths = new Set();
   groups.forEach((group) => {
     const letter = (group.name ?? "").replace("Group ", "").trim();
     if (!letter) return;
@@ -253,6 +254,8 @@ function computeQualifiers(groups, fixtureData = {}) {
       Object.entries(feasible).forEach(([teamName, positions]) => {
         if (positions.size === 1 && positions.has(1)) guaranteedWinners.add(teamName);
         if (positions.size === 1 && positions.has(2)) guaranteedRunnersUp.add(teamName);
+        if (positions.size === 1 && positions.has(3)) guaranteedThirds.add(teamName);
+        if (positions.size === 1 && positions.has(4)) guaranteedFourths.add(teamName);
       });
     }
 
@@ -272,7 +275,7 @@ function computeQualifiers(groups, fixtureData = {}) {
   // Sort by pts → GD → GF (FIFA tiebreak criteria for 3rd-place ranking)
   allThirds.sort((a, b) => b.points - a.points || b.gd - a.gd || b.gf - a.gf);
   const best8 = new Set(allThirds.slice(0, 8).map((t) => t.name));
-  return { winners, runnersUp, allThirds, best8thirds: [...best8], completedGroups, guaranteedWinners, guaranteedRunnersUp };
+  return { winners, runnersUp, allThirds, best8thirds: [...best8], completedGroups, guaranteedWinners, guaranteedRunnersUp, guaranteedThirds, guaranteedFourths };
 }
 
 // Static bracket from FIFA schedule (teams TBD after group stage, June 26+)
@@ -352,6 +355,8 @@ export default function GroupsPage() {
               group={group}
               guaranteedWinners={qualifiers.guaranteedWinners}
               guaranteedRunnersUp={qualifiers.guaranteedRunnersUp}
+              guaranteedThirds={qualifiers.guaranteedThirds}
+              guaranteedFourths={qualifiers.guaranteedFourths}
             />
           ))}
         </div>
@@ -368,7 +373,7 @@ export default function GroupsPage() {
   );
 }
 
-function GroupTable({ group, guaranteedWinners = new Set(), guaranteedRunnersUp = new Set() }) {
+function GroupTable({ group, guaranteedWinners = new Set(), guaranteedRunnersUp = new Set(), guaranteedThirds = new Set(), guaranteedFourths = new Set() }) {
   const entries = [...(group.standings?.entries ?? [])].sort((a, b) => {
     const sa = Object.fromEntries((a.stats ?? []).map((s) => [s.name, s.value]));
     const sb = Object.fromEntries((b.stats ?? []).map((s) => [s.name, s.value]));
@@ -396,7 +401,13 @@ function GroupTable({ group, guaranteedWinners = new Set(), guaranteedRunnersUp 
             const stats = Object.fromEntries(
               (entry.stats ?? []).map((s) => [s.name, s.value])
             );
-            const isGuaranteed = guaranteedWinners.has(teamName) || guaranteedRunnersUp.has(teamName);
+            const nameClass = guaranteedWinners.has(teamName) || guaranteedRunnersUp.has(teamName)
+              ? styles.staticTeamConfirmed
+              : guaranteedThirds.has(teamName)
+              ? styles.teamThird
+              : guaranteedFourths.has(teamName)
+              ? styles.teamEliminated
+              : "";
             return (
               <tr key={entry.team?.id ?? teamName}>
                 <td className={styles.teamCell}>
@@ -411,7 +422,7 @@ function GroupTable({ group, guaranteedWinners = new Set(), guaranteedRunnersUp 
                       style={{ objectFit: "contain" }}
                     />
                   )}
-                  <span className={`${styles.espnTeamName} ${isGuaranteed ? styles.staticTeamConfirmed : ""}`}>{teamName}</span>
+                  <span className={`${styles.espnTeamName} ${nameClass}`}>{teamName}</span>
                   {sweepEntry?.person && (
                     <span className={styles.ownerBadge}>{sweepEntry.person}</span>
                   )}

@@ -13,8 +13,8 @@ const PRIZES = [
   { name: "Player of the Tournament",            amount: 40  },
   { name: "Goal of the Tournament",              amount: 40,  currentKey: "gott" },
   { name: "Worst Team Overall",                  amount: 20,  currentKey: "worstOverall" },
-  { name: "Worst Team to exit Group Stage",      amount: 20  },
-  { name: "Worst Team to reach Last 16",         amount: 20,  currentKey: "worstL16" },
+  { name: "Worst Team to exit Group Stage",      amount: 20,  currentKey: "worstGroup" },
+  { name: "Worst Team to reach Last 16",         amount: 20  },
   { name: "Worst Team to reach Quarter-Finals",  amount: 20  },
 ];
 
@@ -175,7 +175,7 @@ export default function PrizesPage() {
   const currently = {
     gott: MANUAL_CURRENT.gott?.entry,
     worstOverall: worstTeam,
-    worstL16: worstQualified,
+    worstGroup: worstQualified,
   };
 
   async function runSim() {

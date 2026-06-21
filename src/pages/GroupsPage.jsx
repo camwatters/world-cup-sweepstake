@@ -16,6 +16,9 @@ function scoreboardUrl() {
 
 const CACHE_KEY_STANDINGS = "espn_standings";
 const CACHE_KEY_SCOREBOARD = `espn_scoreboard_${new Date().toISOString().slice(0, 10)}`;
+const CACHE_KEY_GROUP_STAGE = "espn_group_stage_2026";
+const GROUP_STAGE_URL =
+  "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?limit=200&dates=20260612-20260626";
 
 const ESPN_ALIASES = {
   "czechia": "czech republic",
@@ -65,8 +68,145 @@ function sortEntries(entries) {
   });
 }
 
-function computeQualifiers(groups) {
+// Build per-group fixture data (completed results + remaining games) from ESPN scoreboard events
+function buildFixtureData(events, groups) {
+  const teamToGroup = {};
+  groups.forEach((group) => {
+    const letter = (group.name ?? "").replace("Group ", "").trim();
+    if (!letter || letter.length > 1) return;
+    (group.standings?.entries ?? []).forEach((e) => {
+      const name = (e.team?.displayName ?? "").toLowerCase();
+      if (name) teamToGroup[name] = letter;
+    });
+  });
+
+  const groupFixtures = {};
+
+  events.forEach((event) => {
+    const comp = event.competitions?.[0];
+    if (!(comp?.groups?.name ?? "").includes("group")) return;
+    const home = comp.competitors?.find((c) => c.homeAway === "home");
+    const away = comp.competitors?.find((c) => c.homeAway === "away");
+    if (!home || !away) return;
+
+    const homeName = home.team?.displayName ?? "";
+    const awayName = away.team?.displayName ?? "";
+    const letter =
+      teamToGroup[homeName.toLowerCase()] ??
+      teamToGroup[awayName.toLowerCase()];
+    if (!letter) return;
+
+    if (!groupFixtures[letter]) groupFixtures[letter] = { completed: [], remaining: [] };
+
+    if (comp.status?.type?.completed) {
+      groupFixtures[letter].completed.push({
+        home: homeName,
+        away: awayName,
+        homeScore: parseInt(home.score ?? "0") || 0,
+        awayScore: parseInt(away.score ?? "0") || 0,
+      });
+    } else {
+      groupFixtures[letter].remaining.push({ home: homeName, away: awayName });
+    }
+  });
+
+  return groupFixtures;
+}
+
+// Enumerate all possible outcomes of remaining games and return the set of
+// positions each team can finish in. Uses FIFA WC tiebreaker order:
+// pts → H2H pts → H2H GD → H2H GF → overall GD → overall GF
+function computeFeasiblePositions(groupEntry, fixtureData) {
+  const letter = (groupEntry.name ?? "").replace("Group ", "").trim();
+  const fixtures = fixtureData?.[letter];
+  if (!fixtures) return null; // no data for this group
+
+  const getStatsLocal = (e) => Object.fromEntries((e.stats ?? []).map((s) => [s.name, s.value]));
+  const teams = (groupEntry.standings?.entries ?? []).map((e) => {
+    const st = getStatsLocal(e);
+    return {
+      name: e.team?.displayName ?? "",
+      pts: st.points ?? 0,
+      gd: st.pointDifferential ?? 0,
+      gf: st.pointsFor ?? 0,
+    };
+  });
+  if (teams.length === 0) return null;
+
+  // Build H2H lookup from completed matches
+  const h2h = {};
+  fixtures.completed.forEach(({ home, away, homeScore, awayScore }) => {
+    const key = [home, away].sort().join("|");
+    const hPts = homeScore > awayScore ? 3 : homeScore === awayScore ? 1 : 0;
+    const aPts = awayScore > homeScore ? 3 : homeScore === awayScore ? 1 : 0;
+    h2h[key] = {
+      [home]: { pts: hPts, gd: homeScore - awayScore, gf: homeScore },
+      [away]: { pts: aPts, gd: awayScore - homeScore, gf: awayScore },
+    };
+  });
+
+  function rankTeams(simTeams, simH2H) {
+    return [...simTeams].sort((a, b) => {
+      if (b.pts !== a.pts) return b.pts - a.pts;
+      // H2H between this pair
+      const key = [a.name, b.name].sort().join("|");
+      const m = simH2H[key];
+      if (m?.[a.name] && m?.[b.name]) {
+        const aH = m[a.name], bH = m[b.name];
+        if (bH.pts !== aH.pts) return bH.pts - aH.pts;
+        if (bH.gd !== aH.gd) return bH.gd - aH.gd;
+        if (bH.gf !== aH.gf) return bH.gf - aH.gf;
+      }
+      if (b.gd !== a.gd) return b.gd - a.gd;
+      return b.gf - a.gf;
+    });
+  }
+
+  const remaining = fixtures.remaining;
+  const possiblePositions = {};
+  teams.forEach((t) => (possiblePositions[t.name] = new Set()));
+
+  const total = 3 ** remaining.length; // W/D/L per remaining game
+  for (let i = 0; i < total; i++) {
+    const simTeams = teams.map((t) => ({ ...t }));
+    const simH2H = Object.fromEntries(Object.entries(h2h).map(([k, v]) => [k, { ...v }]));
+    let code = i;
+
+    for (let j = 0; j < remaining.length; j++) {
+      const outcome = code % 3; // 0=homeWin 1=draw 2=awayWin
+      code = Math.floor(code / 3);
+      const game = remaining[j];
+      const homeT = simTeams.find((t) => t.name === game.home);
+      const awayT = simTeams.find((t) => t.name === game.away);
+      if (!homeT || !awayT) continue;
+
+      // Synthetic score: 1-0 win, 0-0 draw, 0-1 loss
+      const hScore = outcome === 0 ? 1 : 0;
+      const aScore = outcome === 2 ? 1 : 0;
+      const hPts = outcome === 0 ? 3 : outcome === 1 ? 1 : 0;
+      const aPts = outcome === 2 ? 3 : outcome === 1 ? 1 : 0;
+
+      homeT.pts += hPts; homeT.gd += hScore - aScore; homeT.gf += hScore;
+      awayT.pts += aPts; awayT.gd += aScore - hScore; awayT.gf += aScore;
+
+      const key = [game.home, game.away].sort().join("|");
+      simH2H[key] = {
+        [game.home]: { pts: hPts, gd: hScore - aScore, gf: hScore },
+        [game.away]: { pts: aPts, gd: aScore - hScore, gf: aScore },
+      };
+    }
+
+    rankTeams(simTeams, simH2H).forEach((t, idx) => {
+      possiblePositions[t.name].add(idx + 1);
+    });
+  }
+
+  return possiblePositions;
+}
+
+function computeQualifiers(groups, fixtureData = {}) {
   const winners = {}, runnersUp = {}, allThirds = [], completedGroups = new Set();
+  const guaranteedWinners = new Set(), guaranteedRunnersUp = new Set();
   groups.forEach((group) => {
     const letter = (group.name ?? "").replace("Group ", "").trim();
     if (!letter) return;
@@ -75,6 +215,16 @@ function computeQualifiers(groups) {
     if (allPlayed3) completedGroups.add(letter);
     if (sorted[0]) winners[letter] = sorted[0].team?.displayName ?? "";
     if (sorted[1]) runnersUp[letter] = sorted[1].team?.displayName ?? "";
+
+    // Feasibility analysis: mark teams whose position is mathematically locked
+    const feasible = computeFeasiblePositions(group, fixtureData);
+    if (feasible) {
+      Object.entries(feasible).forEach(([teamName, positions]) => {
+        if (positions.size === 1 && positions.has(1)) guaranteedWinners.add(teamName);
+        if (positions.size === 1 && positions.has(2)) guaranteedRunnersUp.add(teamName);
+      });
+    }
+
     if (sorted[2]) {
       const st = getStats(sorted[2]);
       allThirds.push({
@@ -91,7 +241,7 @@ function computeQualifiers(groups) {
   // Sort by pts → GD → GF (FIFA tiebreak criteria for 3rd-place ranking)
   allThirds.sort((a, b) => b.points - a.points || b.gd - a.gd || b.gf - a.gf);
   const best8 = new Set(allThirds.slice(0, 8).map((t) => t.name));
-  return { winners, runnersUp, allThirds, best8thirds: [...best8], completedGroups };
+  return { winners, runnersUp, allThirds, best8thirds: [...best8], completedGroups, guaranteedWinners, guaranteedRunnersUp };
 }
 
 // Static bracket from FIFA schedule (teams TBD after group stage, June 26+)
@@ -117,6 +267,7 @@ const R32_SCHEDULE = [
 export default function GroupsPage() {
   const [standings, setStandings] = useState(null);
   const [scoreboard, setScoreboard] = useState(null);
+  const [groupStageEvents, setGroupStageEvents] = useState(null);
   const [error, setError] = useState(null);
   const [tab, setTab] = useState("groups");
 
@@ -124,10 +275,12 @@ export default function GroupsPage() {
     Promise.all([
       fetchWithCache(ESPN_STANDINGS, CACHE_KEY_STANDINGS, TTL.STANDINGS),
       fetchWithCache(scoreboardUrl(), CACHE_KEY_SCOREBOARD, TTL.SCORES),
+      fetchWithCache(GROUP_STAGE_URL, CACHE_KEY_GROUP_STAGE, TTL.SCORES).catch(() => null),
     ])
-      .then(([s, sc]) => {
+      .then(([s, sc, gsg]) => {
         setStandings(s);
         setScoreboard(sc);
+        setGroupStageEvents(gsg?.events ?? null);
       })
       .catch((e) => setError(e.message));
   }, []);
@@ -142,6 +295,7 @@ export default function GroupsPage() {
 
   const groups = standings?.children ?? [];
   const events = scoreboard?.events ?? [];
+  const fixtureData = groupStageEvents ? buildFixtureData(groupStageEvents, groups) : {};
 
   const knockoutEvents = events.filter((e) => {
     const groupName = e.competitions?.[0]?.groups?.name ?? "";
@@ -171,7 +325,7 @@ export default function GroupsPage() {
       )}
 
       {tab === "bracket" && (
-        <BracketTab knockoutEvents={knockoutEvents} qualifiers={computeQualifiers(groups)} />
+        <BracketTab knockoutEvents={knockoutEvents} qualifiers={computeQualifiers(groups, fixtureData)} />
       )}
     </div>
   );
@@ -337,16 +491,18 @@ function TeamSlot({ entry, team, right }) {
 }
 
 function resolveSlot(label, qualifiers) {
-  const { winners, runnersUp, allThirds, best8thirds, completedGroups } = qualifiers;
+  const { winners, runnersUp, allThirds, best8thirds, completedGroups, guaranteedWinners, guaranteedRunnersUp } = qualifiers;
   const winM = label.match(/^Winner Group ([A-L])$/);
   if (winM) {
     const letter = winM[1];
-    return { label, team: winners[letter] || null, guaranteed: completedGroups.has(letter) };
+    const team = winners[letter] || null;
+    return { label, team, guaranteed: completedGroups.has(letter) || (team ? guaranteedWinners.has(team) : false) };
   }
   const runM = label.match(/^Runner-up Group ([A-L])$/);
   if (runM) {
     const letter = runM[1];
-    return { label, team: runnersUp[letter] || null, guaranteed: completedGroups.has(letter) };
+    const team = runnersUp[letter] || null;
+    return { label, team, guaranteed: completedGroups.has(letter) || (team ? guaranteedRunnersUp.has(team) : false) };
   }
   if (label.startsWith("Best 3rd")) {
     const groupMatch = label.match(/Best 3rd ([A-L/]+)/);

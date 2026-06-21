@@ -16,9 +16,6 @@ function scoreboardUrl() {
 
 const CACHE_KEY_STANDINGS = "espn_standings";
 const CACHE_KEY_SCOREBOARD = `espn_scoreboard_${new Date().toISOString().slice(0, 10)}`;
-const CACHE_KEY_GROUP_STAGE = "espn_group_stage_2026";
-const GROUP_STAGE_URL =
-  "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?limit=200&dates=20260612-20260626";
 
 const ESPN_ALIASES = {
   "czechia": "czech republic",
@@ -68,7 +65,11 @@ function sortEntries(entries) {
   });
 }
 
-// Build per-group fixture data (completed results + remaining games) from ESPN scoreboard events
+// Build per-group remaining fixtures from upcoming scoreboard events.
+// We use the regular upcoming scoreboard (already fetched) rather than a
+// separate historical endpoint, so `completed` is always empty — tiebreaks
+// fall through to overall GD rather than H2H, which is fine for the
+// "mathematically guaranteed" check in practice.
 function buildFixtureData(events, groups) {
   const teamToGroup = {};
   groups.forEach((group) => {
@@ -84,30 +85,21 @@ function buildFixtureData(events, groups) {
 
   events.forEach((event) => {
     const comp = event.competitions?.[0];
-    if (!(comp?.groups?.name ?? "").includes("group")) return;
+    // Only upcoming group-stage games (completed ones aren't in the upcoming scoreboard)
+    if ((comp?.groups?.name ?? "") !== "group-stage") return;
+    if (comp?.status?.type?.completed) return;
+
     const home = comp.competitors?.find((c) => c.homeAway === "home");
     const away = comp.competitors?.find((c) => c.homeAway === "away");
     if (!home || !away) return;
 
     const homeName = home.team?.displayName ?? "";
     const awayName = away.team?.displayName ?? "";
-    const letter =
-      teamToGroup[homeName.toLowerCase()] ??
-      teamToGroup[awayName.toLowerCase()];
+    const letter = teamToGroup[homeName.toLowerCase()] ?? teamToGroup[awayName.toLowerCase()];
     if (!letter) return;
 
     if (!groupFixtures[letter]) groupFixtures[letter] = { completed: [], remaining: [] };
-
-    if (comp.status?.type?.completed) {
-      groupFixtures[letter].completed.push({
-        home: homeName,
-        away: awayName,
-        homeScore: parseInt(home.score ?? "0") || 0,
-        awayScore: parseInt(away.score ?? "0") || 0,
-      });
-    } else {
-      groupFixtures[letter].remaining.push({ home: homeName, away: awayName });
-    }
+    groupFixtures[letter].remaining.push({ home: homeName, away: awayName });
   });
 
   return groupFixtures;
@@ -267,7 +259,6 @@ const R32_SCHEDULE = [
 export default function GroupsPage() {
   const [standings, setStandings] = useState(null);
   const [scoreboard, setScoreboard] = useState(null);
-  const [groupStageEvents, setGroupStageEvents] = useState(null);
   const [error, setError] = useState(null);
   const [tab, setTab] = useState("groups");
 
@@ -275,12 +266,10 @@ export default function GroupsPage() {
     Promise.all([
       fetchWithCache(ESPN_STANDINGS, CACHE_KEY_STANDINGS, TTL.STANDINGS),
       fetchWithCache(scoreboardUrl(), CACHE_KEY_SCOREBOARD, TTL.SCORES),
-      fetchWithCache(GROUP_STAGE_URL, CACHE_KEY_GROUP_STAGE, TTL.SCORES).catch(() => null),
     ])
-      .then(([s, sc, gsg]) => {
+      .then(([s, sc]) => {
         setStandings(s);
         setScoreboard(sc);
-        setGroupStageEvents(gsg?.events ?? null);
       })
       .catch((e) => setError(e.message));
   }, []);
@@ -295,7 +284,7 @@ export default function GroupsPage() {
 
   const groups = standings?.children ?? [];
   const events = scoreboard?.events ?? [];
-  const fixtureData = groupStageEvents ? buildFixtureData(groupStageEvents, groups) : {};
+  const fixtureData = buildFixtureData(events, groups);
 
   const knockoutEvents = events.filter((e) => {
     const groupName = e.competitions?.[0]?.groups?.name ?? "";
@@ -590,6 +579,24 @@ function BracketTab({ knockoutEvents, qualifiers }) {
     );
   }
 
+  // Resolve all R32 slots up front, then deduplicate "Best 3rd" team assignments.
+  // Multiple slot labels share group letters (e.g. both A/B/C/D/F and B/E/F/I/J
+  // include B), so without deduplication the same team can appear twice.
+  const usedBest3rd = new Set();
+  const resolvedMatches = R32_SCHEDULE.map((m) => {
+    let home = resolveSlot(m.home, qualifiers);
+    let away = resolveSlot(m.away, qualifiers);
+    if (m.home.startsWith("Best 3rd") && home.team) {
+      if (usedBest3rd.has(home.team)) home = { ...home, team: null };
+      else usedBest3rd.add(home.team);
+    }
+    if (m.away.startsWith("Best 3rd") && away.team) {
+      if (usedBest3rd.has(away.team)) away = { ...away, team: null };
+      else usedBest3rd.add(away.team);
+    }
+    return { m, home, away };
+  });
+
   return (
     <div className={styles.bracket}>
       <div className={styles.bracketBanner}>
@@ -598,9 +605,7 @@ function BracketTab({ knockoutEvents, qualifiers }) {
       <div className={styles.bracketRound}>
         <h3 className={styles.bracketRoundTitle}>Round of 32</h3>
         <div className={styles.bracketMatches}>
-          {R32_SCHEDULE.map((m) => {
-            const home = resolveSlot(m.home, qualifiers);
-            const away = resolveSlot(m.away, qualifiers);
+          {resolvedMatches.map(({ m, home, away }) => {
             const homeEntry = home.team ? findEntry(home.team) : null;
             const awayEntry = away.team ? findEntry(away.team) : null;
             return (

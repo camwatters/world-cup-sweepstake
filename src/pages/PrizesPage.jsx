@@ -130,7 +130,9 @@ function buildGroupOverrides(standings) {
     const minPlayed = Math.min(...gamesPlayedArr);
     const maxPlayed = Math.max(...gamesPlayedArr);
     if (maxPlayed === 0) continue;
-    const complete = minPlayed >= 3;
+    // complete when any team has played 3 games — prevents re-simulating
+    // already-played MD3 games for teams that are genuinely eliminated.
+    const complete = maxPlayed >= 3;
     const sorted = [...entries].sort((a, b) => {
       const sa = getStats(a), sb = getStats(b);
       return (sb.points??0)-(sa.points??0) || (sb.pointDifferential??0)-(sa.pointDifferential??0) || (sb.pointsFor??0)-(sa.pointsFor??0);

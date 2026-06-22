@@ -129,8 +129,7 @@ function buildGroupOverrides(standings) {
     const gamesPlayedArr = entries.map(e => getStats(e).gamesPlayed ?? 0);
     const minPlayed = Math.min(...gamesPlayedArr);
     const maxPlayed = Math.max(...gamesPlayedArr);
-    if (minPlayed === 0 && maxPlayed === 0) continue;
-    if (minPlayed !== maxPlayed) continue; // mid-matchday — skip
+    if (maxPlayed === 0) continue;
     const complete = minPlayed >= 3;
     const sorted = [...entries].sort((a, b) => {
       const sa = getStats(a), sb = getStats(b);

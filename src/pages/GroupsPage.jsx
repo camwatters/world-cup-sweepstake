@@ -278,24 +278,33 @@ function computeQualifiers(groups, fixtureData = {}) {
   return { winners, runnersUp, allThirds, best8thirds: [...best8], completedGroups, guaranteedWinners, guaranteedRunnersUp, guaranteedThirds, guaranteedFourths };
 }
 
-// Static bracket from FIFA schedule (teams TBD after group stage, June 26+)
+// R32 in bracket order (pairs of matches that feed into the same R16 game).
+// Derived from R16 = [[1,4],[0,2],[3,5],[6,7],[10,11],[8,9],[13,15],[12,14]] in monteCarlo.js.
+// Quarter 1 → QF[0] → SF[0]: R32 slots 1,4 then 0,2
+// Quarter 2 → QF[1] → SF[0]: R32 slots 10,11 then 8,9
+// Quarter 3 → QF[2] → SF[1]: R32 slots 3,5 then 6,7
+// Quarter 4 → QF[3] → SF[1]: R32 slots 13,15 then 12,14
 const R32_SCHEDULE = [
-  { date: "28 Jun", venue: "Inglewood",    home: "Runner-up Group A", away: "Runner-up Group B" },
-  { date: "29 Jun", venue: "Foxborough",   home: "Winner Group E",    away: "Best 3rd A/B/C/D/F" },
-  { date: "29 Jun", venue: "Guadalupe",    home: "Winner Group F",    away: "Runner-up Group C" },
-  { date: "29 Jun", venue: "Houston",      home: "Winner Group C",    away: "Runner-up Group F" },
-  { date: "30 Jun", venue: "East Rutherford", home: "Winner Group I", away: "Best 3rd C/D/F/G/H" },
-  { date: "30 Jun", venue: "Arlington",    home: "Runner-up Group E", away: "Runner-up Group I" },
-  { date: "30 Jun", venue: "Mexico City",  home: "Winner Group A",    away: "Best 3rd C/E/F/H/I" },
-  { date: "1 Jul",  venue: "Atlanta",      home: "Winner Group L",    away: "Best 3rd E/H/I/J/K" },
-  { date: "1 Jul",  venue: "Santa Clara",  home: "Winner Group D",    away: "Best 3rd B/E/F/I/J" },
-  { date: "1 Jul",  venue: "Seattle",      home: "Winner Group G",    away: "Best 3rd A/E/H/I/J" },
-  { date: "2 Jul",  venue: "Toronto",      home: "Runner-up Group K", away: "Runner-up Group L" },
-  { date: "2 Jul",  venue: "Inglewood",    home: "Winner Group H",    away: "Runner-up Group J" },
-  { date: "2 Jul",  venue: "Vancouver",    home: "Winner Group B",    away: "Best 3rd E/F/G/I/J" },
-  { date: "3 Jul",  venue: "Miami Gardens",home: "Winner Group J",    away: "Runner-up Group H" },
-  { date: "3 Jul",  venue: "Arlington",    home: "Runner-up Group D", away: "Runner-up Group G" },
-  { date: "3 Jul",  venue: "Kansas City",  home: "Winner Group K",    away: "Best 3rd D/E/I/J/L" },
+  // — Quarter 1 —
+  { date: "29 Jun", venue: "Foxborough",      home: "Winner Group E",    away: "Best 3rd A/B/C/D/F" },
+  { date: "30 Jun", venue: "East Rutherford", home: "Winner Group I",    away: "Best 3rd C/D/F/G/H" },
+  { date: "28 Jun", venue: "Inglewood",       home: "Runner-up Group A", away: "Runner-up Group B"   },
+  { date: "29 Jun", venue: "Guadalupe",       home: "Winner Group F",    away: "Runner-up Group C"   },
+  // — Quarter 2 —
+  { date: "2 Jul",  venue: "Toronto",         home: "Runner-up Group K", away: "Runner-up Group L"   },
+  { date: "2 Jul",  venue: "Inglewood",       home: "Winner Group H",    away: "Runner-up Group J"   },
+  { date: "1 Jul",  venue: "Santa Clara",     home: "Winner Group D",    away: "Best 3rd B/E/F/I/J" },
+  { date: "1 Jul",  venue: "Seattle",         home: "Winner Group G",    away: "Best 3rd A/E/H/I/J" },
+  // — Quarter 3 —
+  { date: "29 Jun", venue: "Houston",         home: "Winner Group C",    away: "Runner-up Group F"   },
+  { date: "30 Jun", venue: "Arlington",       home: "Runner-up Group E", away: "Runner-up Group I"   },
+  { date: "30 Jun", venue: "Mexico City",     home: "Winner Group A",    away: "Best 3rd C/E/F/H/I" },
+  { date: "1 Jul",  venue: "Atlanta",         home: "Winner Group L",    away: "Best 3rd E/H/I/J/K" },
+  // — Quarter 4 —
+  { date: "3 Jul",  venue: "Miami Gardens",   home: "Winner Group J",    away: "Runner-up Group H"   },
+  { date: "3 Jul",  venue: "Arlington",       home: "Runner-up Group D", away: "Runner-up Group G"   },
+  { date: "2 Jul",  venue: "Vancouver",       home: "Winner Group B",    away: "Best 3rd E/F/G/I/J" },
+  { date: "3 Jul",  venue: "Kansas City",     home: "Winner Group K",    away: "Best 3rd D/E/I/J/L" },
 ];
 
 export default function GroupsPage() {

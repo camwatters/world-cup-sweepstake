@@ -1,7 +1,7 @@
 import { draw } from '../data/draw';
 
 // Official 2026 World Cup group draw (using draw.js team names)
-const GROUPS = {
+export const GROUPS = {
   A: ['Mexico', 'Czech Republic', 'South Korea', 'South Africa'],
   B: ['Canada', 'Bosnia and Herzegovina', 'Switzerland', 'Qatar'],
   C: ['Brazil', 'Scotland', 'Haiti', 'Morocco'],
@@ -58,14 +58,15 @@ function matchSim(a, b) {
 }
 
 // MD schedule for a 4-team round-robin (indices into group names array)
-const GROUP_SCHEDULE = [
+export const GROUP_SCHEDULE = [
   [[0,1],[2,3]], // MD1
   [[0,2],[1,3]], // MD2
   [[0,3],[1,2]], // MD3
 ];
 
-// Seed from real standings, simulate only remaining matchdays
-function simPartialGroup(names, overrideTeams, matchdaysPlayed, gottPairs, tm) {
+// Seed from real standings, simulate only remaining matchdays.
+// eliminatedTeams: Set of team names that cannot finish in the top 2 (H2H-locked out).
+function simPartialGroup(names, overrideTeams, matchdaysPlayed, gottPairs, tm, eliminatedTeams = new Set()) {
   const om = Object.fromEntries(overrideTeams.map(t => [t.teamName, t]));
   const teams = names.map(n => tm[n]);
   const pts = names.map(n => om[n]?.pts ?? 0);
@@ -86,6 +87,11 @@ function simPartialGroup(names, overrideTeams, matchdaysPlayed, gottPairs, tm) {
   const idx = [0,1,2,3].sort((a,b) =>
     (pts[b]-pts[a]) || (gd[b]-gd[a]) || (gf[b]-gf[a]) || (Math.random()-0.5)
   );
+  if (eliminatedTeams.size > 0) {
+    const top = idx.filter(i => !eliminatedTeams.has(names[i]));
+    const bot = idx.filter(i =>  eliminatedTeams.has(names[i]));
+    return [...top, ...bot].map(i => ({ team: teams[i], pts: pts[i], gd: gd[i], gf: gf[i] }));
+  }
   return idx.map(i => ({ team: teams[i], pts: pts[i], gd: gd[i], gf: gf[i] }));
 }
 
@@ -181,7 +187,7 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
           .map(({ teamName, pts, gd, gf }) => ({ team: localTeamMap[teamName], pts, gd, gf: gf ?? 0 }))
           .filter(r => r.team);
       } else if (ov) {
-        sorted = simPartialGroup(names, ov.teams, ov.matchdaysPlayed, gottPairs, localTeamMap);
+        sorted = simPartialGroup(names, ov.teams, ov.matchdaysPlayed, gottPairs, localTeamMap, ov.eliminatedTeams ?? new Set());
       } else {
         sorted = simGroup(names, gottPairs, localTeamMap);
       }

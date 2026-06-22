@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { draw } from "../data/draw";
 import Flag from "../components/Flag";
-import { runSimulations } from "../utils/monteCarlo";
+import { runSimulations, GROUPS, GROUP_SCHEDULE } from "../utils/monteCarlo";
 import { getCached, setCache, TTL } from "../utils/cache";
 import { fetchCurrentOdds, getCachedOddsAge } from "../utils/oddsApi";
 import styles from "./PrizesPage.module.css";
@@ -118,6 +118,46 @@ function computeWorstQualified(standings) {
   return worst;
 }
 
+// Uses GROUP_SCHEDULE + current standings to infer which teams are H2H-locked out of top 2.
+// Only fires for teams whose pts are unambiguous: 0pts (lost all) or maxPts (won all).
+// A team is eliminated if 2+ opponents both (a) beat them on H2H and (b) already have
+// points >= the team's theoretical maximum.
+function computeEliminatedTeams(overrideTeams, letter, matchdaysPlayed) {
+  const groupNames = GROUPS[letter];
+  if (!groupNames || matchdaysPlayed === 0) return new Set();
+
+  const teamByName = Object.fromEntries(overrideTeams.map(t => [t.teamName, t]));
+  const maxPlayedPts = 3 * matchdaysPlayed;
+
+  // Build set of "A definitely beat B" relationships from unambiguous results.
+  const definitelyBeat = new Set();
+  for (let md = 0; md < matchdaysPlayed; md++) {
+    for (const [aIdx, bIdx] of GROUP_SCHEDULE[md]) {
+      const aName = groupNames[aIdx], bName = groupNames[bIdx];
+      const a = teamByName[aName], b = teamByName[bName];
+      if (!a || !b) continue;
+      if (b.pts === 0)          definitelyBeat.add(`${aName}:${bName}`); // b lost all games
+      if (a.pts === 0)          definitelyBeat.add(`${bName}:${aName}`); // a lost all games
+      if (a.pts === maxPlayedPts) definitelyBeat.add(`${aName}:${bName}`); // a won all games
+      if (b.pts === maxPlayedPts) definitelyBeat.add(`${bName}:${aName}`); // b won all games
+    }
+  }
+
+  const eliminated = new Set();
+  for (const team of overrideTeams) {
+    const maxPts = team.pts + 3 * (3 - matchdaysPlayed);
+    let definitelyAbove = 0;
+    for (const opp of overrideTeams) {
+      if (opp === team) continue;
+      if (definitelyBeat.has(`${opp.teamName}:${team.teamName}`) && opp.pts >= maxPts) {
+        definitelyAbove++;
+      }
+    }
+    if (definitelyAbove >= 2) eliminated.add(team.teamName);
+  }
+  return eliminated;
+}
+
 function buildGroupOverrides(standings) {
   const overrides = {};
   const groups = standings?.children ?? standings?.standings?.groups ?? [];
@@ -143,7 +183,8 @@ function buildGroupOverrides(standings) {
       const st = getStats(e);
       return { teamName, pts: st.points ?? 0, gd: st.pointDifferential ?? 0, gf: st.pointsFor ?? 0 };
     }).filter(Boolean);
-    if (teams.length === 4) overrides[letter] = { teams, complete, matchdaysPlayed: minPlayed };
+    const eliminatedTeams = complete ? new Set() : computeEliminatedTeams(teams, letter, minPlayed);
+    if (teams.length === 4) overrides[letter] = { teams, complete, matchdaysPlayed: minPlayed, eliminatedTeams };
   }
   return overrides;
 }

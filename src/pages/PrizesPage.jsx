@@ -149,9 +149,11 @@ function computeEliminatedTeams(overrideTeams, letter, matchdaysPlayed) {
     let definitelyAbove = 0;
     for (const opp of overrideTeams) {
       if (opp === team) continue;
-      if (definitelyBeat.has(`${opp.teamName}:${team.teamName}`) && opp.pts >= maxPts) {
-        definitelyAbove++;
-      }
+      // Strictly above: opp already has more pts than team can ever reach — no H2H needed.
+      // Tied: opp could finish level with team's max, but H2H win means opp always places higher.
+      const strictlyAbove = opp.pts > maxPts;
+      const tiedWithHth   = opp.pts === maxPts && definitelyBeat.has(`${opp.teamName}:${team.teamName}`);
+      if (strictlyAbove || tiedWithHth) definitelyAbove++;
     }
     if (definitelyAbove >= 2) eliminated.add(team.teamName);
   }

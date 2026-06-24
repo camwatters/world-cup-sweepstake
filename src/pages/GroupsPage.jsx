@@ -278,7 +278,18 @@ function computeQualifiers(groups, fixtureData = {}) {
   // Sort by pts → GD → GF (FIFA tiebreak criteria for 3rd-place ranking)
   allThirds.sort((a, b) => b.points - a.points || b.gd - a.gd || b.gf - a.gf);
   const best8 = new Set(allThirds.slice(0, 8).map((t) => t.name));
-  return { winners, runnersUp, allThirds, best8thirds: [...best8], completedGroups, guaranteedWinners, guaranteedRunnersUp, guaranteedThirds, guaranteedFourths, guaranteedThrough };
+
+  // Confirmed top-8 / confirmed-out for 3rd-place teams (same logic as ThirdPlaceTable)
+  const incompleteGroups = 12 - completedGroups.size;
+  const thirdConfirmedIn = new Set(), thirdConfirmedOut = new Set();
+  allThirds.forEach((t, i) => {
+    if (!completedGroups.has(t.group)) return;
+    const completedAbove = allThirds.slice(0, i).filter(t2 => completedGroups.has(t2.group)).length;
+    if (completedAbove + incompleteGroups <= 7) thirdConfirmedIn.add(t.name);
+    if (completedAbove >= 8) thirdConfirmedOut.add(t.name);
+  });
+
+  return { winners, runnersUp, allThirds, best8thirds: [...best8], completedGroups, guaranteedWinners, guaranteedRunnersUp, guaranteedThirds, guaranteedFourths, guaranteedThrough, thirdConfirmedIn, thirdConfirmedOut };
 }
 
 // R32 in bracket order (pairs of matches that feed into the same R16 game).
@@ -369,6 +380,8 @@ export default function GroupsPage() {
               guaranteedThrough={qualifiers.guaranteedThrough}
               guaranteedThirds={qualifiers.guaranteedThirds}
               guaranteedFourths={qualifiers.guaranteedFourths}
+              thirdConfirmedIn={qualifiers.thirdConfirmedIn}
+              thirdConfirmedOut={qualifiers.thirdConfirmedOut}
             />
           ))}
         </div>
@@ -385,7 +398,7 @@ export default function GroupsPage() {
   );
 }
 
-function GroupTable({ group, guaranteedWinners = new Set(), guaranteedThrough = new Set(), guaranteedThirds = new Set(), guaranteedFourths = new Set() }) {
+function GroupTable({ group, guaranteedWinners = new Set(), guaranteedThrough = new Set(), guaranteedThirds = new Set(), guaranteedFourths = new Set(), thirdConfirmedIn = new Set(), thirdConfirmedOut = new Set() }) {
   const entries = [...(group.standings?.entries ?? [])].sort((a, b) => {
     const sa = Object.fromEntries((a.stats ?? []).map((s) => [s.name, s.value]));
     const sb = Object.fromEntries((b.stats ?? []).map((s) => [s.name, s.value]));
@@ -417,10 +430,12 @@ function GroupTable({ group, guaranteedWinners = new Set(), guaranteedThrough = 
               ? styles.teamWinner
               : guaranteedThrough.has(teamName)
               ? styles.staticTeamConfirmed
+              : thirdConfirmedIn.has(teamName)
+              ? styles.staticTeamConfirmed
+              : thirdConfirmedOut.has(teamName) || guaranteedFourths.has(teamName)
+              ? styles.teamEliminated
               : guaranteedThirds.has(teamName)
               ? styles.teamThird
-              : guaranteedFourths.has(teamName)
-              ? styles.teamEliminated
               : "";
             return (
               <tr key={entry.team?.id ?? teamName}>

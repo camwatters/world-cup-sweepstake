@@ -548,7 +548,55 @@ function TeamSlot({ entry, team, right }) {
   );
 }
 
-function resolveSlot(label, qualifiers) {
+// Bipartite matching: assign each of the top-8 third-place teams to exactly one
+// R32 "Best 3rd" slot whose eligible-group set contains that team's group.
+// Uses DFS augmenting paths (Kuhn's algorithm) — 8×8 so trivially fast.
+function computeBest3rdAssignment(allThirds, best8thirds) {
+  const best8set = new Set(best8thirds);
+  const top8 = allThirds.filter((t) => best8set.has(t.name)); // preserves rank order
+  if (top8.length === 0) return {};
+
+  const seen = new Set();
+  const slots = [];
+  for (const m of R32_SCHEDULE) {
+    for (const label of [m.home, m.away]) {
+      if (label.startsWith("Best 3rd") && !seen.has(label)) {
+        seen.add(label);
+        slots.push({ label, eligible: new Set(label.replace("Best 3rd ", "").split("/")) });
+      }
+    }
+  }
+
+  const ns = slots.length;
+  const nt = top8.length;
+  const slotToTeam = new Array(ns).fill(-1);
+  const teamToSlot = new Array(nt).fill(-1);
+
+  function augment(si, visited) {
+    for (let ti = 0; ti < nt; ti++) {
+      if (visited[ti] || !slots[si].eligible.has(top8[ti].group)) continue;
+      visited[ti] = true;
+      if (teamToSlot[ti] === -1 || augment(teamToSlot[ti], visited)) {
+        slotToTeam[si] = ti;
+        teamToSlot[ti] = si;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  for (let si = 0; si < ns; si++) {
+    augment(si, new Array(nt).fill(false));
+  }
+
+  const assignment = {};
+  for (let si = 0; si < ns; si++) {
+    assignment[slots[si].label] = slotToTeam[si] >= 0 ? top8[slotToTeam[si]].name : null;
+  }
+  return assignment;
+}
+
+function resolveSlot(label, qualifiers, best3rdAssignment = {}) {
   const { winners, runnersUp, allThirds, best8thirds, completedGroups, guaranteedWinners, guaranteedRunnersUp } = qualifiers;
   const winM = label.match(/^Winner Group ([A-L])$/);
   if (winM) {
@@ -563,15 +611,13 @@ function resolveSlot(label, qualifiers) {
     return { label, team, guaranteed: completedGroups.has(letter) || (team ? guaranteedRunnersUp.has(team) : false) };
   }
   if (label.startsWith("Best 3rd")) {
+    const allGroupsDone = completedGroups.size >= 12;
+    const team = best3rdAssignment[label] ?? null;
+    if (team) return { label, team, tentative: best8thirds.length < 8 || !allGroupsDone, guaranteed: allGroupsDone };
+    // Fallback before top-8 is known: show best 3rd from eligible groups
     const groupMatch = label.match(/Best 3rd ([A-L/]+)/);
     if (groupMatch && allThirds.length > 0) {
       const eligible = new Set(groupMatch[1].split("/"));
-      const best8set = new Set(best8thirds);
-      const allGroupsDone = completedGroups.size >= 12;
-      // Best qualifying third from eligible groups (in top-8 rank order)
-      const candidate = allThirds.find((t) => eligible.has(t.group) && best8set.has(t.name));
-      if (candidate) return { label, team: candidate.name, tentative: best8thirds.length < 8 || !allGroupsDone, guaranteed: allGroupsDone };
-      // Fallback: best third from eligible groups even if outside top 8 yet
       const fallback = allThirds.find((t) => eligible.has(t.group));
       if (fallback) return { label, team: fallback.name, tentative: true };
     }
@@ -648,23 +694,12 @@ function BracketTab({ knockoutEvents, qualifiers }) {
     );
   }
 
-  // Resolve all R32 slots up front, then deduplicate "Best 3rd" team assignments.
-  // Multiple slot labels share group letters (e.g. both A/B/C/D/F and B/E/F/I/J
-  // include B), so without deduplication the same team can appear twice.
-  const usedBest3rd = new Set();
-  const resolvedMatches = R32_SCHEDULE.map((m) => {
-    let home = resolveSlot(m.home, qualifiers);
-    let away = resolveSlot(m.away, qualifiers);
-    if (m.home.startsWith("Best 3rd") && home.team) {
-      if (usedBest3rd.has(home.team)) home = { ...home, team: null };
-      else usedBest3rd.add(home.team);
-    }
-    if (m.away.startsWith("Best 3rd") && away.team) {
-      if (usedBest3rd.has(away.team)) away = { ...away, team: null };
-      else usedBest3rd.add(away.team);
-    }
-    return { m, home, away };
-  });
+  const best3rdAssignment = computeBest3rdAssignment(qualifiers.allThirds, qualifiers.best8thirds);
+  const resolvedMatches = R32_SCHEDULE.map((m) => ({
+    m,
+    home: resolveSlot(m.home, qualifiers, best3rdAssignment),
+    away: resolveSlot(m.away, qualifiers, best3rdAssignment),
+  }));
 
   return (
     <div className={styles.bracket}>

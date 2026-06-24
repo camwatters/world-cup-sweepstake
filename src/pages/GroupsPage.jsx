@@ -631,9 +631,9 @@ function resolveSlot(label, qualifiers, best3rdAssignment = {}) {
   return { label, team: null };
 }
 
-function ThirdPlaceTable({ allThirds, best8thirds }) {
+function ThirdPlaceTable({ allThirds, best8thirds, completedGroups = new Set() }) {
   if (allThirds.length === 0) return null;
-  const best8 = new Set(best8thirds);
+  const incompleteGroups = 12 - completedGroups.size;
   return (
     <div className={styles.thirdsTable}>
       <h3 className={styles.bracketRoundTitle}>Best 3rd-Place Rankings</h3>
@@ -652,15 +652,18 @@ function ThirdPlaceTable({ allThirds, best8thirds }) {
         <tbody>
           {allThirds.map((t, i) => {
             const entry = findEntry(t.name);
-            const qualifying = best8.has(t.name);
-            const rowClass = qualifying ? styles.qualifyingRow : styles.eliminatedRow;
+            const groupComplete = completedGroups.has(t.group);
+            const completedAbove = allThirds.slice(0, i).filter(t2 => completedGroups.has(t2.group)).length;
+            const confirmedIn  = groupComplete && completedAbove + incompleteGroups <= 7;
+            const confirmedOut = groupComplete && completedAbove >= 8;
+            const rowClass = confirmedIn ? styles.qualifyingRow : confirmedOut ? styles.eliminatedRow : "";
             return (
               <tr key={t.name} className={rowClass}>
                 <td className={styles.teamCell}>
                   <span className={styles.thirdsRank}>{i + 1}</span>
                   {entry && <Flag code={entry.flag} size={18} />}
                   <span className={styles.espnTeamName}>{t.name}</span>
-                  {qualifying && i < 8 && <span className={styles.qualifyBadge}>Q</span>}
+                  {confirmedIn && <span className={styles.qualifyBadge}>Q</span>}
                 </td>
                 <td>{t.group}</td>
                 <td>{t.played}</td>
@@ -745,7 +748,7 @@ function BracketTab({ knockoutEvents, qualifiers }) {
           })}
         </div>
       </div>
-      <ThirdPlaceTable allThirds={qualifiers.allThirds} best8thirds={qualifiers.best8thirds} />
+      <ThirdPlaceTable allThirds={qualifiers.allThirds} best8thirds={qualifiers.best8thirds} completedGroups={qualifiers.completedGroups} />
 
       <div className={styles.bracketRound}>
         <h3 className={styles.bracketRoundTitle}>Round of 16 · 4–7 Jul</h3>

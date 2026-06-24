@@ -673,7 +673,7 @@ function ThirdPlaceTable({ allThirds, best8thirds, completedGroups = new Set() }
             const confirmedOut = groupComplete && completedAbove >= 8;
             const rowClass = confirmedIn ? styles.qualifyingRow : confirmedOut ? styles.eliminatedRow : "";
             return (
-              <tr key={t.name} className={rowClass}>
+              <tr key={t.name} className={`${rowClass} ${i === 8 ? styles.cutoffRow : ""}`}>
                 <td className={styles.teamCell}>
                   <span className={styles.thirdsRank}>{i + 1}</span>
                   {entry && <Flag code={entry.flag} size={18} />}

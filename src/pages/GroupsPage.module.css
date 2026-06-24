@@ -547,6 +547,10 @@
   opacity: 0.7;
 }
 
+.cutoffRow td {
+  border-top: 2px dashed rgba(255,255,255,0.15);
+}
+
 .thirdsRank {
   font-family: 'Barlow Condensed', sans-serif;
   font-size: 0.72rem;

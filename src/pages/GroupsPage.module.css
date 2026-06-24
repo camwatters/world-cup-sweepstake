@@ -81,6 +81,18 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 0.85rem;
+  table-layout: fixed;
+}
+
+.table th:not(.teamCol) {
+  width: 28px;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.table td:not(.teamCell) {
+  padding-left: 4px;
+  padding-right: 4px;
 }
 
 .table thead tr {

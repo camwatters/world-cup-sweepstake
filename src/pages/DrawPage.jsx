@@ -144,8 +144,8 @@ function TeamCard({ entry, rank, fmtOdds, oddsMode }) {
   return (
     <div className={`${styles.card} ${isFav ? styles.cardFav : ""}`}>
       <div className={styles.rank}>{rank}</div>
-      <Flag code={entry.flag} size={32} />
       <div className={styles.info}>
+        <Flag code={entry.flag} size={24} />
         <div className={styles.teamName}>{entry.team}</div>
         {entry.person && <div className={styles.person}>{entry.person}</div>}
       </div>

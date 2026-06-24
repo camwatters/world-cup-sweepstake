@@ -501,6 +501,11 @@
   font-size: 0.75rem;
 }
 
+.teamWinner {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .staticTeamConfirmed {
   color: #22c55e;
 }
@@ -529,7 +534,7 @@
 }
 
 .qualifyingRow .espnTeamName {
-  color: var(--text);
+  color: #22c55e;
   font-weight: 600;
 }
 
@@ -538,7 +543,8 @@
 }
 
 .eliminatedRow .espnTeamName {
-  color: var(--muted);
+  color: #ef4444;
+  opacity: 0.7;
 }
 
 .thirdsRank {

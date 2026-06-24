@@ -239,6 +239,7 @@ function computeQualifiers(groups, fixtureData = {}) {
   const winners = {}, runnersUp = {}, allThirds = [], completedGroups = new Set();
   const guaranteedWinners = new Set(), guaranteedRunnersUp = new Set();
   const guaranteedThirds = new Set(), guaranteedFourths = new Set();
+  const guaranteedThrough = new Set();
   groups.forEach((group) => {
     const letter = (group.name ?? "").replace("Group ", "").trim();
     if (!letter) return;
@@ -256,6 +257,8 @@ function computeQualifiers(groups, fixtureData = {}) {
         if (positions.size === 1 && positions.has(2)) guaranteedRunnersUp.add(teamName);
         if (positions.size === 1 && positions.has(3)) guaranteedThirds.add(teamName);
         if (positions.size === 1 && positions.has(4)) guaranteedFourths.add(teamName);
+        // Guaranteed through = all feasible positions are top-2 (may still be 1st or 2nd)
+        if (positions.size > 0 && [...positions].every(p => p <= 2)) guaranteedThrough.add(teamName);
       });
     }
 
@@ -275,7 +278,7 @@ function computeQualifiers(groups, fixtureData = {}) {
   // Sort by pts → GD → GF (FIFA tiebreak criteria for 3rd-place ranking)
   allThirds.sort((a, b) => b.points - a.points || b.gd - a.gd || b.gf - a.gf);
   const best8 = new Set(allThirds.slice(0, 8).map((t) => t.name));
-  return { winners, runnersUp, allThirds, best8thirds: [...best8], completedGroups, guaranteedWinners, guaranteedRunnersUp, guaranteedThirds, guaranteedFourths };
+  return { winners, runnersUp, allThirds, best8thirds: [...best8], completedGroups, guaranteedWinners, guaranteedRunnersUp, guaranteedThirds, guaranteedFourths, guaranteedThrough };
 }
 
 // R32 in bracket order (pairs of matches that feed into the same R16 game).
@@ -363,7 +366,7 @@ export default function GroupsPage() {
               key={group.uid ?? group.name}
               group={group}
               guaranteedWinners={qualifiers.guaranteedWinners}
-              guaranteedRunnersUp={qualifiers.guaranteedRunnersUp}
+              guaranteedThrough={qualifiers.guaranteedThrough}
               guaranteedThirds={qualifiers.guaranteedThirds}
               guaranteedFourths={qualifiers.guaranteedFourths}
             />
@@ -382,7 +385,7 @@ export default function GroupsPage() {
   );
 }
 
-function GroupTable({ group, guaranteedWinners = new Set(), guaranteedRunnersUp = new Set(), guaranteedThirds = new Set(), guaranteedFourths = new Set() }) {
+function GroupTable({ group, guaranteedWinners = new Set(), guaranteedThrough = new Set(), guaranteedThirds = new Set(), guaranteedFourths = new Set() }) {
   const entries = [...(group.standings?.entries ?? [])].sort((a, b) => {
     const sa = Object.fromEntries((a.stats ?? []).map((s) => [s.name, s.value]));
     const sb = Object.fromEntries((b.stats ?? []).map((s) => [s.name, s.value]));
@@ -410,7 +413,9 @@ function GroupTable({ group, guaranteedWinners = new Set(), guaranteedRunnersUp 
             const stats = Object.fromEntries(
               (entry.stats ?? []).map((s) => [s.name, s.value])
             );
-            const nameClass = guaranteedWinners.has(teamName) || guaranteedRunnersUp.has(teamName)
+            const nameClass = guaranteedWinners.has(teamName)
+              ? styles.teamWinner
+              : guaranteedThrough.has(teamName)
               ? styles.staticTeamConfirmed
               : guaranteedThirds.has(teamName)
               ? styles.teamThird
@@ -648,8 +653,9 @@ function ThirdPlaceTable({ allThirds, best8thirds }) {
           {allThirds.map((t, i) => {
             const entry = findEntry(t.name);
             const qualifying = best8.has(t.name);
+            const rowClass = qualifying ? styles.qualifyingRow : styles.eliminatedRow;
             return (
-              <tr key={t.name} className={qualifying ? styles.qualifyingRow : styles.eliminatedRow}>
+              <tr key={t.name} className={rowClass}>
                 <td className={styles.teamCell}>
                   <span className={styles.thirdsRank}>{i + 1}</span>
                   {entry && <Flag code={entry.flag} size={18} />}

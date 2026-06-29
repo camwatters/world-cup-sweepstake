@@ -266,6 +266,10 @@ function buildGroupOverrides(standings) {
     const complete = maxPlayed >= 3;
     const sorted = [...entries].sort((a, b) => {
       const sa = getStats(a), sb = getStats(b);
+      // Prefer ESPN's authoritative intra-group rank (applies the full FIFA tiebreaker
+      // chain, including head-to-head). Fall back to pts → GD → GF when rank is absent
+      // (e.g. mid-matchday), which can otherwise mis-order teams tied on GD+GF.
+      if (sa.rank != null && sb.rank != null && sa.rank !== sb.rank) return sa.rank - sb.rank;
       return (sb.points??0)-(sa.points??0) || (sb.pointDifferential??0)-(sa.pointDifferential??0) || (sb.pointsFor??0)-(sa.pointsFor??0);
     });
     const teams = sorted.map(e => {

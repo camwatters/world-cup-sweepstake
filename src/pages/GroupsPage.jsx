@@ -68,6 +68,9 @@ function getStats(entry) {
 function sortEntries(entries) {
   return [...entries].sort((a, b) => {
     const sa = getStats(a), sb = getStats(b);
+    // Prefer ESPN's authoritative intra-group rank (full FIFA tiebreakers incl. head-to-head);
+    // fall back to pts → GD → GF when rank is unavailable.
+    if (sa.rank != null && sb.rank != null && sa.rank !== sb.rank) return sa.rank - sb.rank;
     return (sb.points ?? 0) - (sa.points ?? 0)
       || (sb.pointDifferential ?? 0) - (sa.pointDifferential ?? 0)
       || (sb.pointsFor ?? sb.goalsScored ?? 0) - (sa.pointsFor ?? sa.goalsScored ?? 0);
@@ -409,6 +412,8 @@ function GroupTable({ group, guaranteedWinners = new Set(), guaranteedThrough = 
   const entries = [...(group.standings?.entries ?? [])].sort((a, b) => {
     const sa = Object.fromEntries((a.stats ?? []).map((s) => [s.name, s.value]));
     const sb = Object.fromEntries((b.stats ?? []).map((s) => [s.name, s.value]));
+    // Prefer ESPN's authoritative rank (full FIFA tiebreakers); fall back to pts → GD.
+    if (sa.rank != null && sb.rank != null && sa.rank !== sb.rank) return sa.rank - sb.rank;
     return (sb.points ?? 0) - (sa.points ?? 0) || (sb.pointDifferential ?? 0) - (sa.pointDifferential ?? 0);
   });
   return (

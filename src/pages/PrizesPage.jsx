@@ -62,9 +62,10 @@ function buildKnockoutResults(events) {
   const results = {};
   for (const event of events ?? []) {
     const comp = event.competitions?.[0];
-    if (!comp?.status?.type?.completed) continue;
-    const home = comp.competitors?.find(c => c.homeAway === "home");
-    const away = comp.competitors?.find(c => c.homeAway === "away");
+    // Don't gate on status.type.completed — ESPN may not set that field on knockout events.
+    // Winner determination below acts as the completion guard.
+    const home = comp?.competitors?.find(c => c.homeAway === "home");
+    const away = comp?.competitors?.find(c => c.homeAway === "away");
     if (!home || !away) continue;
     const homeScore = parseInt(home.score) || 0;
     const awayScore = parseInt(away.score) || 0;
@@ -329,7 +330,7 @@ export default function PrizesPage() {
         }
       } catch {}
       try {
-        const cacheKeyKO = `espn_ko_history_${new Date().toISOString().slice(0, 10)}`;
+        const cacheKeyKO = `espn_ko_v3_${new Date().toISOString().slice(0, 10)}`;
         let koData = getCached(cacheKeyKO, TTL.SCORES);
         if (!koData) {
           const res = await fetch(knockoutHistoryUrl());
@@ -377,7 +378,7 @@ export default function PrizesPage() {
       }
     } catch {}
     try {
-      const cacheKeyKO = `espn_ko_history_${new Date().toISOString().slice(0, 10)}`;
+      const cacheKeyKO = `espn_ko_v3_${new Date().toISOString().slice(0, 10)}`;
       let koData = getCached(cacheKeyKO, TTL.SCORES);
       if (!koData) {
         const res = await fetch(knockoutHistoryUrl());

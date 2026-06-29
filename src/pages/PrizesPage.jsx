@@ -42,6 +42,20 @@ function knockoutHistoryUrl() {
   return `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?limit=200&dates=20260612-${today}`;
 }
 
+// Pre-compute within-group pairs — used to reject group-stage matches.
+// ESPN doesn't reliably set groups.name on historical events (noted in GroupsPage too),
+// so we detect group stage structurally: any match between two teams in the same group
+// is a group stage match. Knockout matches are always cross-group.
+const GROUP_PAIRS = (() => {
+  const s = new Set();
+  Object.values(GROUPS).forEach(names => {
+    for (let i = 0; i < names.length; i++)
+      for (let j = i + 1; j < names.length; j++)
+        s.add([names[i].toLowerCase(), names[j].toLowerCase()].sort().join('|'));
+  });
+  return s;
+})();
+
 // Builds pair→winner map from completed knockout events — no round-name parsing needed.
 // Key: sorted "teama|teamb" (lowercase internal names). Value: winner (lowercase internal name).
 function buildKnockoutResults(events) {
@@ -49,9 +63,6 @@ function buildKnockoutResults(events) {
   for (const event of events ?? []) {
     const comp = event.competitions?.[0];
     if (!comp?.status?.type?.completed) continue;
-    // Skip group-stage events; strip all non-alphanumeric so "group-stage"/"Group Stage" both match
-    const groupName = (comp?.groups?.name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
-    if (groupName === "groupstage") continue;
     const home = comp.competitors?.find(c => c.homeAway === "home");
     const away = comp.competitors?.find(c => c.homeAway === "away");
     if (!home || !away) continue;
@@ -68,6 +79,7 @@ function buildKnockoutResults(events) {
     const winR  = resolveEspnTeam(winnerDisplay);
     if (!homeR || !awayR || !winR) continue;
     const pairKey = [homeR.toLowerCase(), awayR.toLowerCase()].sort().join("|");
+    if (GROUP_PAIRS.has(pairKey)) continue; // within-group = group stage match, skip
     results[pairKey] = winR.toLowerCase();
   }
   return results;

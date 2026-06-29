@@ -47,8 +47,9 @@ function buildKnockoutResults(events) {
   for (const event of events ?? []) {
     const comp = event.competitions?.[0];
     if (!comp?.status?.type?.completed) continue;
-    const groupName = (comp?.groups?.name ?? "").toLowerCase();
-    if (!groupName || groupName === "group-stage") continue;
+    // URL starts June 28, so any remaining "group-stage" tagged event should be skipped
+    const groupName = (comp?.groups?.name ?? "").toLowerCase().replace(/-/g, "");
+    if (groupName === "groupstage") continue;
     const home = comp.competitors?.find(c => c.homeAway === "home");
     const away = comp.competitors?.find(c => c.homeAway === "away");
     if (!home || !away) continue;

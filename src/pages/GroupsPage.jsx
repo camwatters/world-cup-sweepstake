@@ -358,8 +358,8 @@ export default function GroupsPage() {
   const qualifiers = computeQualifiers(groups, fixtureData);
 
   const knockoutEvents = events.filter((e) => {
-    const groupName = e.competitions?.[0]?.groups?.name ?? "";
-    return groupName !== "group-stage" && groupName !== "";
+    const groupName = (e.competitions?.[0]?.groups?.name ?? "").toLowerCase().replace(/-/g, "");
+    return groupName !== "groupstage";
   });
 
   return (

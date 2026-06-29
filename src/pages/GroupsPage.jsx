@@ -384,6 +384,11 @@ export default function GroupsPage() {
               thirdConfirmedOut={qualifiers.thirdConfirmedOut}
             />
           ))}
+          {qualifiers.allThirds.length > 0 && (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <ThirdPlaceTable allThirds={qualifiers.allThirds} best8thirds={qualifiers.best8thirds} completedGroups={qualifiers.completedGroups} />
+            </div>
+          )}
         </div>
       )}
 
@@ -931,8 +936,6 @@ function BracketTab({ knockoutEvents, qualifiers }) {
           })}
         </div>
       </div>
-      <ThirdPlaceTable allThirds={qualifiers.allThirds} best8thirds={qualifiers.best8thirds} completedGroups={qualifiers.completedGroups} />
-
       <div className={styles.bracketRound}>
         <h3 className={styles.bracketRoundTitle}>Round of 16 · 4–7 Jul</h3>
         <p className={styles.bracketTbd}>Teams determined after Round of 32</p>

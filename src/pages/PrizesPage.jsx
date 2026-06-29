@@ -35,6 +35,41 @@ const TOTAL = PRIZES.reduce((s, p) => s + p.amount, 0);
 const ESPN_STANDINGS = "https://site.api.espn.com/apis/v2/sports/soccer/fifa.world/standings?season=2026";
 const CACHE_KEY = "espn_standings";
 
+function knockoutHistoryUrl() {
+  const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  return `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?limit=200&dates=20260628-${today}`;
+}
+
+function buildKnockoutWinners(events) {
+  const byRound = { r32: new Set(), r16: new Set(), qf: new Set(), sf: new Set() };
+  for (const event of events ?? []) {
+    const comp = event.competitions?.[0];
+    if (!comp?.status?.type?.completed) continue;
+    const groupName = (comp?.groups?.name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (!groupName || groupName === "groupstage") continue;
+    const round = groupName.includes("32") ? "r32"
+      : groupName.includes("16") ? "r16"
+      : groupName.includes("quarter") ? "qf"
+      : groupName.includes("semi") ? "sf"
+      : null;
+    if (!round) continue;
+    const home = comp.competitors?.find(c => c.homeAway === "home");
+    const away = comp.competitors?.find(c => c.homeAway === "away");
+    if (!home || !away) continue;
+    const homeScore = parseInt(home.score) || 0;
+    const awayScore = parseInt(away.score) || 0;
+    const winnerDisplay = (home.winner === true) ? home.team?.displayName
+      : (away.winner === true) ? away.team?.displayName
+      : homeScore > awayScore ? home.team?.displayName
+      : awayScore > homeScore ? away.team?.displayName
+      : null;
+    if (!winnerDisplay) continue;
+    const resolved = resolveEspnTeam(winnerDisplay);
+    if (resolved) byRound[round].add(resolved);
+  }
+  return byRound;
+}
+
 const ESPN_ALIASES = {
   "czechia": "czech republic",
   "bosnia-herzegovina": "bosnia and herzegovina",
@@ -207,6 +242,7 @@ export default function PrizesPage() {
   const [results, setResults]       = useState(null);
   const [running, setRunning]       = useState(false);
   const [lockedCount, setLockedCount] = useState(null);
+  const [r32LockedCount, setR32LockedCount] = useState(0);
   const [expanded, setExpanded]     = useState(null);
   const [worstTeam, setWorstTeam]       = useState(null);
   const [worstQualified, setWorstQualified] = useState(null);
@@ -243,6 +279,7 @@ export default function PrizesPage() {
     setRunning(true);
     setExpanded(null);
     let groupOverrides = {};
+    let knockoutWinners = {};
     try {
       let s = standingsRef ?? getCached(CACHE_KEY, TTL.STANDINGS);
       if (!s) {
@@ -254,10 +291,23 @@ export default function PrizesPage() {
         setLockedCount(Object.keys(groupOverrides).length);
       }
     } catch {}
+    try {
+      const cacheKeyKO = `espn_ko_${new Date().toISOString().slice(0, 10)}`;
+      let koData = getCached(cacheKeyKO, TTL.SCORES);
+      if (!koData) {
+        const res = await fetch(knockoutHistoryUrl());
+        if (res.ok) { koData = await res.json(); setCache(cacheKeyKO, koData); }
+      }
+      if (koData) {
+        knockoutWinners = buildKnockoutWinners(koData.events ?? []);
+        const total = Object.values(knockoutWinners).reduce((s, set) => s + set.size, 0);
+        setR32LockedCount(total);
+      }
+    } catch {}
     setTimeout(() => {
       const gottEntry = MANUAL_CURRENT.gott;
       const gottConfig = gottEntry ? { teamName: gottEntry.entry.team, quality: gottEntry.quality, perGameProb: gottEntry.perGameProb } : null;
-      const result = runSimulations(10000, groupOverrides, gottConfig, currentOdds);
+      const result = runSimulations(10000, groupOverrides, gottConfig, currentOdds, knockoutWinners);
       setResults(result);
       setRunning(false);
     }, 10);
@@ -323,6 +373,11 @@ export default function PrizesPage() {
             {lockedCount !== null && lockedCount > 0 && (
               <div className={styles.evMeta}>
                 <span className={styles.evLocked}>Live standings used for {lockedCount}/12 groups</span>
+              </div>
+            )}
+            {r32LockedCount > 0 && (
+              <div className={styles.evMeta}>
+                <span className={styles.evLocked}>{r32LockedCount} knockout result{r32LockedCount !== 1 ? 's' : ''} locked in</span>
               </div>
             )}
             <div className={styles.evTable}>

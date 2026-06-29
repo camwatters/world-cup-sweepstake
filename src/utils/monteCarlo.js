@@ -140,7 +140,11 @@ const PRIZE_KEYS = ['winner','runnerUp','third','pott','gott','worstGroup','wors
 // gottConfig: { teamName, quality, perGameProb } — current GOTT holder
 // oddsOverrides: { teamName: decimalOdds } — current bookmaker odds; affects only match-sim
 //   probabilities (t.p). Pre-tournament t.odds is preserved for "worst team" prize calculations.
-export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null, oddsOverrides = null) {
+export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null, oddsOverrides = null, knockoutWinners = {}) {
+  const koR32 = knockoutWinners.r32 ?? new Set();
+  const koR16 = knockoutWinners.r16 ?? new Set();
+  const koQF  = knockoutWinners.qf  ?? new Set();
+  const koSF  = knockoutWinners.sf  ?? new Set();
   // Build local team list: override p (probability) only, keeping odds (pre-tournament) intact
   let localTeams = TEAMS;
   let localTeamMap = teamMap;
@@ -211,22 +215,26 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
         : thirdsMap[i] ?? null,
     ]);
 
-    function simRound(pairs, round) {
+    function simRound(pairs, round, knownWinners = new Set()) {
       return pairs.map(([a, b]) => {
         if (!a) return b; if (!b) return a;
+        if (knownWinners.has(a.team)) { exit[b.team] = round; return a; }
+        if (knownWinners.has(b.team)) { exit[a.team] = round; return b; }
         gottPairs.push([a, b]);
         const w = matchSim(a, b), l = w === a ? b : a;
         exit[l.team] = round; return w;
       });
     }
 
-    const r32W = simRound(r32Pairs, 'r32');
-    const r16W = simRound(R16.map(([a,b]) => [r32W[a], r32W[b]]), 'r16');
-    const qfW  = simRound(QF.map(([a,b]) => [r16W[a], r16W[b]]), 'qf');
+    const r32W = simRound(r32Pairs, 'r32', koR32);
+    const r16W = simRound(R16.map(([a,b]) => [r32W[a], r32W[b]]), 'r16', koR16);
+    const qfW  = simRound(QF.map(([a,b]) => [r16W[a], r16W[b]]), 'qf', koQF);
     const sfW = [], sfL = [];
     SF.forEach(([a,b]) => {
       const ta = qfW[a], tb = qfW[b];
       if (!ta||!tb) { sfW.push(ta??tb); return; }
+      if (koSF.has(ta.team)) { exit[tb.team]='sf'; sfW.push(ta); sfL.push(tb); return; }
+      if (koSF.has(tb.team)) { exit[ta.team]='sf'; sfW.push(tb); sfL.push(ta); return; }
       gottPairs.push([ta, tb]);
       const w = matchSim(ta,tb), l = w===ta?tb:ta;
       exit[l.team]='sf'; sfW.push(w); sfL.push(l);

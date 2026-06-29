@@ -694,31 +694,199 @@ function ThirdPlaceTable({ allThirds, best8thirds, completedGroups = new Set() }
   );
 }
 
+// R16 matchups as pairs of R32_SCHEDULE indices (winners play each other).
+// Derived from R16 = [[1,4],[0,2],[3,5],[6,7],[10,11],[8,9],[13,15],[12,14]] in monteCarlo.js
+// by translating each slot index to its R32_SCHEDULE position.
+const R16_BY_SCHED = [[0,1],[2,3],[8,9],[10,11],[4,5],[6,7],[12,13],[14,15]];
+// QF pairs = R16 winner indices (from monteCarlo.js QF = [[0,1],[4,5],[2,3],[6,7]])
+const QF_BY_R16 = [[0,1],[4,5],[2,3],[6,7]];
+
+function normalizeDisplayName(name) {
+  if (!name) return null;
+  const entry = findEntry(name);
+  return (entry ? entry.team : name).toLowerCase();
+}
+
+// Map an ESPN groups.name to a bracket tier (0=R32, 1=R16, 2=QF, 3=SF, 4=Final)
+function roundNameTier(name) {
+  const n = (name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (n.includes("32")) return 0;
+  if (n.includes("16")) return 1;
+  if (n.includes("quarter")) return 2;
+  if (n.includes("semi")) return 3;
+  if (n.includes("final")) return 4;
+  return -1;
+}
+
 function BracketTab({ knockoutEvents, qualifiers }) {
+  const best3rdAssignment = computeBest3rdAssignment(qualifiers.allThirds, qualifiers.best8thirds);
+
   if (knockoutEvents.length > 0) {
+    // Build lookup: sorted pair key → winner display name (from completed events)
+    const matchWinners = {};
+    knockoutEvents.forEach((e) => {
+      const comp = e.competitions?.[0];
+      if (!comp?.status?.type?.completed) return;
+      const home = comp.competitors?.find(c => c.homeAway === "home");
+      const away = comp.competitors?.find(c => c.homeAway === "away");
+      if (!home || !away) return;
+      const homeName = home.team?.displayName ?? "";
+      const awayName = away.team?.displayName ?? "";
+      const homeScore = parseInt(home.score) || 0;
+      const awayScore = parseInt(away.score) || 0;
+      const winner = (home.winner === true) ? homeName
+        : (away.winner === true) ? awayName
+        : homeScore > awayScore ? homeName
+        : awayScore > homeScore ? awayName
+        : null;
+      if (!winner) return;
+      const key = [normalizeDisplayName(homeName), normalizeDisplayName(awayName)].sort().join("|");
+      matchWinners[key] = winner;
+    });
+
+    function pairWinner(a, b) {
+      if (!a || !b) return null;
+      const key = [normalizeDisplayName(a), normalizeDisplayName(b)].sort().join("|");
+      const w = matchWinners[key];
+      if (!w) return null;
+      const wk = normalizeDisplayName(w);
+      return wk === normalizeDisplayName(a) ? a : wk === normalizeDisplayName(b) ? b : null;
+    }
+
+    // Resolve all 16 R32 slots to actual teams from current standings
+    const resolvedR32 = R32_SCHEDULE.map((m) => ({
+      home: resolveSlot(m.home, qualifiers, best3rdAssignment),
+      away: resolveSlot(m.away, qualifiers, best3rdAssignment),
+    }));
+
+    // R32 slot winners: check matchWinners for each resolved slot pair
+    const koAllWinnerKeys = new Set(Object.values(matchWinners).map(normalizeDisplayName).filter(Boolean));
+    const slotW = resolvedR32.map(({ home, away }) => {
+      const hk = normalizeDisplayName(home.team);
+      const ak = normalizeDisplayName(away.team);
+      if (hk && koAllWinnerKeys.has(hk)) return home.team;
+      if (ak && koAllWinnerKeys.has(ak)) return away.team;
+      return null;
+    });
+
+    // R16 winners: look up each R16 match's expected pair in matchWinners
+    const r16W = R16_BY_SCHED.map(([a, b]) => pairWinner(slotW[a], slotW[b]));
+    // QF winners
+    const qfW = QF_BY_R16.map(([a, b]) => pairWinner(r16W[a], r16W[b]));
+    // SF winners
+    const sfW = [[0,1],[2,3]].map(([a, b]) => pairWinner(qfW[a], qfW[b]));
+
+    // Determine the highest round tier already shown by ESPN
     const byRound = {};
     knockoutEvents.forEach((e) => {
       const round = e.competitions?.[0]?.groups?.name ?? "Unknown";
       if (!byRound[round]) byRound[round] = [];
       byRound[round].push(e);
     });
+    const maxTier = Math.max(...Object.keys(byRound).map(roundNameTier).filter(t => t >= 0), -1);
+
+    // bracketSlot: produce display info for a team slot
+    function bracketSlot(name, fallback) {
+      if (name) return { name, entry: findEntry(name), confirmed: true };
+      return { name: fallback, entry: null, confirmed: false };
+    }
+
+    // Fallback labels for unknown participants
+    function r32SlotFallback(idx) {
+      const { home, away } = resolvedR32[idx];
+      return `${home.team || home.label} / ${away.team || away.label}`;
+    }
+    function r16SlotFallback(idx) {
+      return slotW[R16_BY_SCHED[idx][0]] && slotW[R16_BY_SCHED[idx][1]]
+        ? `${slotW[R16_BY_SCHED[idx][0]]} / ${slotW[R16_BY_SCHED[idx][1]]}`
+        : "TBD";
+    }
+    function qfSlotFallback(idx) {
+      return r16W[QF_BY_R16[idx][0]] && r16W[QF_BY_R16[idx][1]]
+        ? `${r16W[QF_BY_R16[idx][0]]} / ${r16W[QF_BY_R16[idx][1]]}`
+        : "TBD";
+    }
+
+    // Future rounds in order; each has a label and its computed matchup pairs
+    const FUTURE_ROUNDS = [
+      {
+        tier: 1, label: "Round of 16 · 4–7 Jul",
+        pairs: R16_BY_SCHED.map(([a, b]) => [
+          bracketSlot(slotW[a], r32SlotFallback(a)),
+          bracketSlot(slotW[b], r32SlotFallback(b)),
+        ]),
+      },
+      {
+        tier: 2, label: "Quarter-finals · 9–11 Jul",
+        pairs: QF_BY_R16.map(([a, b]) => [
+          bracketSlot(r16W[a], r16SlotFallback(a)),
+          bracketSlot(r16W[b], r16SlotFallback(b)),
+        ]),
+      },
+      {
+        tier: 3, label: "Semi-finals · 14–15 Jul",
+        pairs: [[0,1],[2,3]].map(([a, b]) => [
+          bracketSlot(qfW[a], qfSlotFallback(a)),
+          bracketSlot(qfW[b], qfSlotFallback(b)),
+        ]),
+      },
+      {
+        tier: 4, label: "Final · 19 Jul · MetLife Stadium",
+        pairs: [[bracketSlot(sfW[0], "TBD"), bracketSlot(sfW[1], "TBD")]],
+      },
+    ];
+
+    function renderFutureMatch(teamA, teamB, key) {
+      return (
+        <div key={key} className={styles.staticMatch}>
+          <div className={styles.staticTeams}>
+            <div className={styles.staticSlot}>
+              {teamA.entry && <Flag code={teamA.entry.flag} size={18} />}
+              <div>
+                <div className={`${styles.staticTeam} ${teamA.confirmed ? styles.staticTeamConfirmed : ""}`}>{teamA.name}</div>
+                {teamA.entry?.person && <div className={styles.staticOwner}>{teamA.entry.person}</div>}
+              </div>
+            </div>
+            <span className={styles.staticVs}>vs</span>
+            <div className={`${styles.staticSlot} ${styles.staticSlotRight}`}>
+              <div style={{ textAlign: "right" }}>
+                <div className={`${styles.staticTeam} ${teamB.confirmed ? styles.staticTeamConfirmed : ""}`}>{teamB.name}</div>
+                {teamB.entry?.person && <div className={styles.staticOwner}>{teamB.entry.person}</div>}
+              </div>
+              {teamB.entry && <Flag code={teamB.entry.flag} size={18} />}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const futureToShow = FUTURE_ROUNDS.filter(r => r.tier > maxTier);
+
     return (
       <div className={styles.bracket}>
         {Object.entries(byRound).map(([round, events]) => (
           <div key={round} className={styles.bracketRound}>
             <h3 className={styles.bracketRoundTitle}>{round}</h3>
             <div className={styles.bracketMatches}>
-              {events.map((event) => (
-                <FixtureRow key={event.id} event={event} />
-              ))}
+              {events.map((event) => <FixtureRow key={event.id} event={event} />)}
             </div>
+          </div>
+        ))}
+        {futureToShow.map((r, idx) => (
+          <div key={r.tier} className={styles.bracketRound}>
+            <h3 className={styles.bracketRoundTitle}>{r.label}</h3>
+            {idx === 0
+              ? <div className={styles.bracketMatches}>
+                  {r.pairs.map(([teamA, teamB], i) => renderFutureMatch(teamA, teamB, i))}
+                </div>
+              : <p className={styles.bracketTbd}>Teams determined after {futureToShow[idx - 1].label.split(" ·")[0]}</p>
+            }
           </div>
         ))}
       </div>
     );
   }
 
-  const best3rdAssignment = computeBest3rdAssignment(qualifiers.allThirds, qualifiers.best8thirds);
   const resolvedMatches = R32_SCHEDULE.map((m) => ({
     m,
     home: resolveSlot(m.home, qualifiers, best3rdAssignment),

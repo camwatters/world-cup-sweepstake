@@ -35,51 +35,26 @@ const TOTAL = PRIZES.reduce((s, p) => s + p.amount, 0);
 const ESPN_STANDINGS = "https://site.api.espn.com/apis/v2/sports/soccer/fifa.world/standings?season=2026";
 const CACHE_KEY = "espn_standings";
 
-function knockoutUrls() {
+// R32 starts June 28 (group stage ended June 26), so this date window contains
+// only knockout events — no group stage filtering needed. Ending +14 days
+// ensures the window always covers the latest completed results.
+function knockoutScoreboardUrl() {
   const fmt = (d) => new Date(d).toISOString().slice(0, 10).replace(/-/g, "");
-  const today = Date.now();
-  // History: catches anything completed before today (group stage filtered out by GROUP_PAIRS)
-  const history = `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?limit=200&dates=20260612-${fmt(today)}`;
-  // Current: same URL GroupsPage uses — reliably includes today's completed + upcoming fixtures
-  const current = `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?limit=100&dates=${fmt(today)}-${fmt(today + 7 * 86400000)}`;
-  return [history, current];
+  return `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?limit=100&dates=20260628-${fmt(Date.now() + 14 * 864e5)}`;
 }
 
-// Fetch completed knockout events from both the history URL (past days) and
-// the current scoreboard URL (today's games), then merge and deduplicate by event id.
-// This ensures we catch results whether they happened yesterday or today.
+// Fetch knockout events from the single knockout-only scoreboard window, cached per-day.
 async function fetchKnockoutEvents() {
-  const cacheKey = `espn_ko_v4_${new Date().toISOString().slice(0, 10)}`;
+  const cacheKey = `espn_ko_v5_${new Date().toISOString().slice(0, 10)}`;
   const cached = getCached(cacheKey, TTL.SCORES);
   if (cached) return cached;
-  const [histUrl, currUrl] = knockoutUrls();
-  const [histRes, currRes] = await Promise.allSettled([fetch(histUrl), fetch(currUrl)]);
-  const events = [];
-  const seen = new Set();
-  for (const r of [histRes, currRes]) {
-    if (r.status !== 'fulfilled' || !r.value.ok) continue;
-    const data = await r.value.json();
-    for (const e of data.events ?? []) {
-      if (!seen.has(e.id)) { seen.add(e.id); events.push(e); }
-    }
-  }
+  const res = await fetch(knockoutScoreboardUrl());
+  if (!res.ok) return [];
+  const data = await res.json();
+  const events = data.events ?? [];
   setCache(cacheKey, events);
   return events;
 }
-
-// Pre-compute within-group pairs — used to reject group-stage matches.
-// ESPN doesn't reliably set groups.name on historical events (noted in GroupsPage too),
-// so we detect group stage structurally: any match between two teams in the same group
-// is a group stage match. Knockout matches are always cross-group.
-const GROUP_PAIRS = (() => {
-  const s = new Set();
-  Object.values(GROUPS).forEach(names => {
-    for (let i = 0; i < names.length; i++)
-      for (let j = i + 1; j < names.length; j++)
-        s.add([names[i].toLowerCase(), names[j].toLowerCase()].sort().join('|'));
-  });
-  return s;
-})();
 
 // Builds pair→winner map from completed knockout events — no round-name parsing needed.
 // Key: sorted "teama|teamb" (lowercase internal names). Value: winner (lowercase internal name).
@@ -87,25 +62,19 @@ function buildKnockoutResults(events) {
   const results = {};
   for (const event of events ?? []) {
     const comp = event.competitions?.[0];
-    // Don't gate on status.type.completed — ESPN may not set that field on knockout events.
-    // Winner determination below acts as the completion guard.
     const home = comp?.competitors?.find(c => c.homeAway === "home");
     const away = comp?.competitors?.find(c => c.homeAway === "away");
     if (!home || !away) continue;
-    const homeScore = parseInt(home.score) || 0;
-    const awayScore = parseInt(away.score) || 0;
-    const winnerDisplay = (home.winner === true) ? home.team?.displayName
-      : (away.winner === true) ? away.team?.displayName
-      : homeScore > awayScore ? home.team?.displayName
-      : awayScore > homeScore ? away.team?.displayName
+    // Winner flag only — safe for matches that go to ET/pens (level at 90 mins).
+    const winnerDisplay = home.winner === true ? home.team?.displayName
+      : away.winner === true ? away.team?.displayName
       : null;
-    if (!winnerDisplay) continue;
+    if (!winnerDisplay) continue; // not finished yet
     const homeR = resolveEspnTeam(home.team?.displayName ?? "");
     const awayR = resolveEspnTeam(away.team?.displayName ?? "");
     const winR  = resolveEspnTeam(winnerDisplay);
     if (!homeR || !awayR || !winR) continue;
     const pairKey = [homeR.toLowerCase(), awayR.toLowerCase()].sort().join("|");
-    if (GROUP_PAIRS.has(pairKey)) continue; // within-group = group stage match, skip
     results[pairKey] = winR.toLowerCase();
   }
   return results;

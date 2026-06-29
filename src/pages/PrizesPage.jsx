@@ -329,10 +329,10 @@ export default function PrizesPage() {
           const koResults = buildKnockoutResults(koEvents);
           setKoResultsCache(koResults);
           const { r32, r16 } = computeRoundWinners(koResults);
-          const worstR32 = r32.size >= 16 ? computeWorstKnockoutTeam(r32) : null;
-          const worstR16 = r16.size >= 8  ? computeWorstKnockoutTeam(r16) : null;
-          setWorstL16Entry(worstR32 ? { ...worstR32, confirmed: true } : null);
-          setWorstQFEntry(worstR16  ? { ...worstR16,  confirmed: true } : null);
+          const worstR32 = r32.size > 0 ? computeWorstKnockoutTeam(r32) : null;
+          const worstR16 = r16.size > 0 ? computeWorstKnockoutTeam(r16) : null;
+          setWorstL16Entry(worstR32 ? { ...worstR32, confirmed: r32.size >= 16 } : null);
+          setWorstQFEntry(worstR16  ? { ...worstR16,  confirmed: r16.size >= 8  } : null);
         }
       } catch {}
       try {

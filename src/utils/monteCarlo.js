@@ -217,9 +217,11 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     ]);
 
     // Pair-based: looks up confirmed result by sorted "teama|teamb" key; falls back to simulation.
-    // Also handles bracket-mismatch: when assignThirds() produces a different pair than the real
-    // bracket, the exact key won't match — so if one team is a confirmed winner and the other
-    // hasn't won any match yet, the confirmed winner always advances.
+    // R32-only fallback: assignThirds() may pair a confirmed winner with a different 3rd-place
+    // team than the real bracket, so the exact key misses. In R32 only, if one team has a
+    // confirmed win and the other has none, the confirmed winner advances. This is safe for R32
+    // because 3rd-place slots are the only source of mismatch. For R16+, both finalists won
+    // their R32 (confirmed or simulated), so the fallback would fire incorrectly — omitted.
     function simRound(pairs, round) {
       return pairs.map(([a, b]) => {
         if (!a) return b; if (!b) return a;
@@ -229,9 +231,10 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
         const confirmed = knockoutResults[key];
         if (confirmed === aLower) { exit[b.team] = round; return a; }
         if (confirmed === bLower) { exit[a.team] = round; return b; }
-        // Fallback: one team is a confirmed winner, the other has no confirmed win yet
-        if (confirmedWinners.has(aLower) && !confirmedWinners.has(bLower)) { exit[b.team] = round; return a; }
-        if (confirmedWinners.has(bLower) && !confirmedWinners.has(aLower)) { exit[a.team] = round; return b; }
+        if (round === 'r32') {
+          if (confirmedWinners.has(aLower) && !confirmedWinners.has(bLower)) { exit[b.team] = round; return a; }
+          if (confirmedWinners.has(bLower) && !confirmedWinners.has(aLower)) { exit[a.team] = round; return b; }
+        }
         gottPairs.push([a, b]);
         const w = matchSim(a, b), l = w === a ? b : a;
         exit[l.team] = round; return w;

@@ -37,7 +37,9 @@ const CACHE_KEY = "espn_standings";
 
 function knockoutHistoryUrl() {
   const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  return `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?limit=200&dates=20260628-${today}`;
+  // Start June 12 (same as GroupsPage) — guaranteed to contain all completed matches.
+  // Group-stage events are filtered out in buildKnockoutResults.
+  return `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?limit=200&dates=20260612-${today}`;
 }
 
 // Builds pair→winner map from completed knockout events — no round-name parsing needed.
@@ -47,8 +49,8 @@ function buildKnockoutResults(events) {
   for (const event of events ?? []) {
     const comp = event.competitions?.[0];
     if (!comp?.status?.type?.completed) continue;
-    // URL starts June 28, so any remaining "group-stage" tagged event should be skipped
-    const groupName = (comp?.groups?.name ?? "").toLowerCase().replace(/-/g, "");
+    // Skip group-stage events; strip all non-alphanumeric so "group-stage"/"Group Stage" both match
+    const groupName = (comp?.groups?.name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
     if (groupName === "groupstage") continue;
     const home = comp.competitors?.find(c => c.homeAway === "home");
     const away = comp.competitors?.find(c => c.homeAway === "away");
@@ -315,7 +317,7 @@ export default function PrizesPage() {
         }
       } catch {}
       try {
-        const cacheKeyKO = `espn_ko_${new Date().toISOString().slice(0, 10)}`;
+        const cacheKeyKO = `espn_ko_history_${new Date().toISOString().slice(0, 10)}`;
         let koData = getCached(cacheKeyKO, TTL.SCORES);
         if (!koData) {
           const res = await fetch(knockoutHistoryUrl());
@@ -363,7 +365,7 @@ export default function PrizesPage() {
       }
     } catch {}
     try {
-      const cacheKeyKO = `espn_ko_${new Date().toISOString().slice(0, 10)}`;
+      const cacheKeyKO = `espn_ko_history_${new Date().toISOString().slice(0, 10)}`;
       let koData = getCached(cacheKeyKO, TTL.SCORES);
       if (!koData) {
         const res = await fetch(knockoutHistoryUrl());

@@ -35,11 +35,36 @@ const TOTAL = PRIZES.reduce((s, p) => s + p.amount, 0);
 const ESPN_STANDINGS = "https://site.api.espn.com/apis/v2/sports/soccer/fifa.world/standings?season=2026";
 const CACHE_KEY = "espn_standings";
 
-function knockoutHistoryUrl() {
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  // Start June 12 (same as GroupsPage) — guaranteed to contain all completed matches.
-  // Group-stage events are filtered out in buildKnockoutResults.
-  return `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?limit=200&dates=20260612-${today}`;
+function knockoutUrls() {
+  const fmt = (d) => new Date(d).toISOString().slice(0, 10).replace(/-/g, "");
+  const today = Date.now();
+  // History: catches anything completed before today (group stage filtered out by GROUP_PAIRS)
+  const history = `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?limit=200&dates=20260612-${fmt(today)}`;
+  // Current: same URL GroupsPage uses — reliably includes today's completed + upcoming fixtures
+  const current = `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?limit=100&dates=${fmt(today)}-${fmt(today + 7 * 86400000)}`;
+  return [history, current];
+}
+
+// Fetch completed knockout events from both the history URL (past days) and
+// the current scoreboard URL (today's games), then merge and deduplicate by event id.
+// This ensures we catch results whether they happened yesterday or today.
+async function fetchKnockoutEvents() {
+  const cacheKey = `espn_ko_v4_${new Date().toISOString().slice(0, 10)}`;
+  const cached = getCached(cacheKey, TTL.SCORES);
+  if (cached) return cached;
+  const [histUrl, currUrl] = knockoutUrls();
+  const [histRes, currRes] = await Promise.allSettled([fetch(histUrl), fetch(currUrl)]);
+  const events = [];
+  const seen = new Set();
+  for (const r of [histRes, currRes]) {
+    if (r.status !== 'fulfilled' || !r.value.ok) continue;
+    const data = await r.value.json();
+    for (const e of data.events ?? []) {
+      if (!seen.has(e.id)) { seen.add(e.id); events.push(e); }
+    }
+  }
+  setCache(cacheKey, events);
+  return events;
 }
 
 // Pre-compute within-group pairs — used to reject group-stage matches.
@@ -330,18 +355,11 @@ export default function PrizesPage() {
         }
       } catch {}
       try {
-        const cacheKeyKO = `espn_ko_v3_${new Date().toISOString().slice(0, 10)}`;
-        let koData = getCached(cacheKeyKO, TTL.SCORES);
-        if (!koData) {
-          const res = await fetch(knockoutHistoryUrl());
-          if (res.ok) { koData = await res.json(); setCache(cacheKeyKO, koData); }
-        }
-        if (koData) {
-          const koResults = buildKnockoutResults(koData.events ?? []);
+        const koEvents = await fetchKnockoutEvents();
+        if (koEvents.length) {
+          const koResults = buildKnockoutResults(koEvents);
           setKoResultsCache(koResults);
           const { r32, r16 } = computeRoundWinners(koResults);
-          // Only show confirmed label when the FULL round is done (same pattern as group stage).
-          // Mid-round "Currently: Canada" is misleading — 15 more teams are still to come.
           const worstR32 = r32.size >= 16 ? computeWorstKnockoutTeam(r32) : null;
           const worstR16 = r16.size >= 8  ? computeWorstKnockoutTeam(r16) : null;
           setWorstL16Entry(worstR32 ? { ...worstR32, confirmed: true } : null);
@@ -382,14 +400,9 @@ export default function PrizesPage() {
       }
     } catch {}
     try {
-      const cacheKeyKO = `espn_ko_v3_${new Date().toISOString().slice(0, 10)}`;
-      let koData = getCached(cacheKeyKO, TTL.SCORES);
-      if (!koData) {
-        const res = await fetch(knockoutHistoryUrl());
-        if (res.ok) { koData = await res.json(); setCache(cacheKeyKO, koData); }
-      }
-      if (koData) {
-        knockoutResults = buildKnockoutResults(koData.events ?? []);
+      const koEvents = await fetchKnockoutEvents();
+      if (koEvents.length) {
+        knockoutResults = buildKnockoutResults(koEvents);
         setKoResultsCache(knockoutResults);
         const { r32, r16 } = computeRoundWinners(knockoutResults);
         const worstR32 = r32.size >= 16 ? computeWorstKnockoutTeam(r32) : null;

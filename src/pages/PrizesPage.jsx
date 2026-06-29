@@ -340,8 +340,12 @@ export default function PrizesPage() {
           const koResults = buildKnockoutResults(koData.events ?? []);
           setKoResultsCache(koResults);
           const { r32, r16 } = computeRoundWinners(koResults);
-          setWorstL16Entry(computeWorstKnockoutTeam(r32));
-          setWorstQFEntry(computeWorstKnockoutTeam(r16));
+          // Only show confirmed label when the FULL round is done (same pattern as group stage).
+          // Mid-round "Currently: Canada" is misleading — 15 more teams are still to come.
+          const worstR32 = r32.size >= 16 ? computeWorstKnockoutTeam(r32) : null;
+          const worstR16 = r16.size >= 8  ? computeWorstKnockoutTeam(r16) : null;
+          setWorstL16Entry(worstR32 ? { ...worstR32, confirmed: true } : null);
+          setWorstQFEntry(worstR16  ? { ...worstR16,  confirmed: true } : null);
         }
       } catch {}
       try {
@@ -388,8 +392,10 @@ export default function PrizesPage() {
         knockoutResults = buildKnockoutResults(koData.events ?? []);
         setKoResultsCache(knockoutResults);
         const { r32, r16 } = computeRoundWinners(knockoutResults);
-        setWorstL16Entry(computeWorstKnockoutTeam(r32));
-        setWorstQFEntry(computeWorstKnockoutTeam(r16));
+        const worstR32 = r32.size >= 16 ? computeWorstKnockoutTeam(r32) : null;
+        const worstR16 = r16.size >= 8  ? computeWorstKnockoutTeam(r16) : null;
+        setWorstL16Entry(worstR32 ? { ...worstR32, confirmed: true } : null);
+        setWorstQFEntry(worstR16  ? { ...worstR16,  confirmed: true } : null);
         setR32LockedCount(Object.keys(knockoutResults).length);
       }
     } catch {}

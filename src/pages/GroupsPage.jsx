@@ -402,7 +402,7 @@ export default function GroupsPage() {
       )}
 
       {tab === "bracket" && (
-        <BracketTab knockoutEvents={knockoutEvents} qualifiers={qualifiers} />
+        <BracketTab knockoutEvents={knockoutEvents} historyEvents={historyEvents ?? []} qualifiers={qualifiers} />
       )}
     </div>
   );
@@ -719,7 +719,7 @@ function normalizeDisplayName(name) {
   return (entry ? entry.team : name).toLowerCase();
 }
 
-// Map an ESPN groups.name to a bracket tier (0=R32, 1=R16, 2=QF, 3=SF, 4=Final)
+// Map a round label string to a bracket tier (0=R32, 1=R16, 2=QF, 3=SF, 4=Final)
 function roundNameTier(name) {
   const n = (name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
   if (n.includes("32")) return 0;
@@ -730,26 +730,47 @@ function roundNameTier(name) {
   return -1;
 }
 
-function BracketTab({ knockoutEvents, qualifiers }) {
-  const best3rdAssignment = computeBest3rdAssignment(qualifiers.allThirds, qualifiers.best8thirds);
+// ESPN doesn't set groups.name on knockout events, so infer round from date.
+function knockoutRoundLabel(event) {
+  const espnName = event.competitions?.[0]?.groups?.name;
+  if (espnName) return espnName;
+  const d = new Date(event.competitions?.[0]?.date ?? event.date ?? "");
+  const m = d.getUTCMonth() + 1, day = d.getUTCDate();
+  if ((m === 6 && day >= 28) || (m === 7 && day <= 3)) return "Round of 32";
+  if (m === 7 && day >= 4 && day <= 7) return "Round of 16";
+  if (m === 7 && day >= 9 && day <= 11) return "Quarter-finals";
+  if (m === 7 && (day === 14 || day === 15)) return "Semi-finals";
+  if (m === 7 && day === 19) return "Final";
+  return "Knockout Stage";
+}
 
-  if (knockoutEvents.length > 0) {
-    // Build lookup: sorted pair key → winner display name (from completed events)
+function BracketTab({ knockoutEvents, historyEvents = [], qualifiers }) {
+  const best3rdAssignment = computeBest3rdAssignment(qualifiers.allThirds, qualifiers.best8thirds);
+  // Merge history knockout events (June 28+) with current scoreboard events so that
+  // completed matches from yesterday are included (current scoreboard only covers today→+7).
+  const historyKnockout = historyEvents.filter(e => {
+    const d = new Date(e.competitions?.[0]?.date ?? e.date ?? "");
+    return (d.getUTCMonth() === 5 && d.getUTCDate() >= 28) || d.getUTCMonth() >= 6;
+  });
+  const allKnockoutEvents = [
+    ...historyKnockout.filter(h => !knockoutEvents.some(c => c.id === h.id)),
+    ...knockoutEvents,
+  ];
+
+  if (allKnockoutEvents.length > 0) {
+    // Build lookup: sorted pair key → winner display name (from completed events).
+    // Use winner flag only (safe for ET/pens) — ESPN doesn't set status.type.completed
+    // on knockout events so we can't use that as a completion guard.
     const matchWinners = {};
-    knockoutEvents.forEach((e) => {
+    allKnockoutEvents.forEach((e) => {
       const comp = e.competitions?.[0];
-      if (!comp?.status?.type?.completed) return;
-      const home = comp.competitors?.find(c => c.homeAway === "home");
-      const away = comp.competitors?.find(c => c.homeAway === "away");
+      const home = comp?.competitors?.find(c => c.homeAway === "home");
+      const away = comp?.competitors?.find(c => c.homeAway === "away");
       if (!home || !away) return;
       const homeName = home.team?.displayName ?? "";
       const awayName = away.team?.displayName ?? "";
-      const homeScore = parseInt(home.score) || 0;
-      const awayScore = parseInt(away.score) || 0;
       const winner = (home.winner === true) ? homeName
         : (away.winner === true) ? awayName
-        : homeScore > awayScore ? homeName
-        : awayScore > homeScore ? awayName
         : null;
       if (!winner) return;
       const key = [normalizeDisplayName(homeName), normalizeDisplayName(awayName)].sort().join("|");
@@ -790,8 +811,8 @@ function BracketTab({ knockoutEvents, qualifiers }) {
 
     // Determine the highest round tier already shown by ESPN
     const byRound = {};
-    knockoutEvents.forEach((e) => {
-      const round = e.competitions?.[0]?.groups?.name ?? "Unknown";
+    allKnockoutEvents.forEach((e) => {
+      const round = knockoutRoundLabel(e);
       if (!byRound[round]) byRound[round] = [];
       byRound[round].push(e);
     });

@@ -74,6 +74,14 @@
   font-weight: 600;
 }
 
+.confirmed {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  color: #22c55e;
+}
+
 .amount {
   font-family: 'Barlow Condensed', sans-serif;
   font-size: 1.5rem;

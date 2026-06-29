@@ -31,6 +31,8 @@ const ESPN_ALIASES = {
   "united states": "usa",
   "curaçao": "curacao",
   "congo dr": "dr congo",
+  "korea republic": "south korea",
+  "cabo verde": "cape verde",
 };
 
 const teamLookup = {};

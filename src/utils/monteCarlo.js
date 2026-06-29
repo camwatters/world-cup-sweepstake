@@ -140,11 +140,8 @@ const PRIZE_KEYS = ['winner','runnerUp','third','pott','gott','worstGroup','wors
 // gottConfig: { teamName, quality, perGameProb } — current GOTT holder
 // oddsOverrides: { teamName: decimalOdds } — current bookmaker odds; affects only match-sim
 //   probabilities (t.p). Pre-tournament t.odds is preserved for "worst team" prize calculations.
-export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null, oddsOverrides = null, knockoutWinners = {}) {
-  const koR32 = knockoutWinners.r32 ?? new Set();
-  const koR16 = knockoutWinners.r16 ?? new Set();
-  const koQF  = knockoutWinners.qf  ?? new Set();
-  const koSF  = knockoutWinners.sf  ?? new Set();
+// knockoutResults: { "teama|teamb": "winner" } — pair-keyed confirmed knockout results (case-insensitive)
+export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null, oddsOverrides = null, knockoutResults = {}) {
   // Build local team list: override p (probability) only, keeping odds (pre-tournament) intact
   let localTeams = TEAMS;
   let localTeamMap = teamMap;
@@ -215,39 +212,56 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
         : thirdsMap[i] ?? null,
     ]);
 
-    function simRound(pairs, round, knownWinners = new Set()) {
+    // Pair-based: looks up confirmed result by sorted "teama|teamb" key; falls back to simulation.
+    function simRound(pairs, round) {
       return pairs.map(([a, b]) => {
         if (!a) return b; if (!b) return a;
-        if (knownWinners.has(a.team)) { exit[b.team] = round; return a; }
-        if (knownWinners.has(b.team)) { exit[a.team] = round; return b; }
+        const key = [a.team.toLowerCase(), b.team.toLowerCase()].sort().join('|');
+        const confirmed = knockoutResults[key];
+        if (confirmed === a.team.toLowerCase()) { exit[b.team] = round; return a; }
+        if (confirmed === b.team.toLowerCase()) { exit[a.team] = round; return b; }
         gottPairs.push([a, b]);
         const w = matchSim(a, b), l = w === a ? b : a;
         exit[l.team] = round; return w;
       });
     }
 
-    const r32W = simRound(r32Pairs, 'r32', koR32);
-    const r16W = simRound(R16.map(([a,b]) => [r32W[a], r32W[b]]), 'r16', koR16);
-    const qfW  = simRound(QF.map(([a,b]) => [r16W[a], r16W[b]]), 'qf', koQF);
+    const r32W = simRound(r32Pairs, 'r32');
+    const r16W = simRound(R16.map(([a,b]) => [r32W[a], r32W[b]]), 'r16');
+    const qfW  = simRound(QF.map(([a,b]) => [r16W[a], r16W[b]]), 'qf');
     const sfW = [], sfL = [];
     SF.forEach(([a,b]) => {
       const ta = qfW[a], tb = qfW[b];
       if (!ta||!tb) { sfW.push(ta??tb); return; }
-      if (koSF.has(ta.team)) { exit[tb.team]='sf'; sfW.push(ta); sfL.push(tb); return; }
-      if (koSF.has(tb.team)) { exit[ta.team]='sf'; sfW.push(tb); sfL.push(ta); return; }
+      const key = [ta.team.toLowerCase(), tb.team.toLowerCase()].sort().join('|');
+      const confirmed = knockoutResults[key];
+      if (confirmed === ta.team.toLowerCase()) { exit[tb.team]='sf'; sfW.push(ta); sfL.push(tb); return; }
+      if (confirmed === tb.team.toLowerCase()) { exit[ta.team]='sf'; sfW.push(tb); sfL.push(ta); return; }
       gottPairs.push([ta, tb]);
       const w = matchSim(ta,tb), l = w===ta?tb:ta;
       exit[l.team]='sf'; sfW.push(w); sfL.push(l);
     });
     if (sfL.length===2) {
-      gottPairs.push([sfL[0], sfL[1]]);
-      const w=matchSim(sfL[0],sfL[1]), l=w===sfL[0]?sfL[1]:sfL[0];
-      exit[w.team]='3rd'; exit[l.team]='4th';
+      const key = [sfL[0].team.toLowerCase(), sfL[1].team.toLowerCase()].sort().join('|');
+      const confirmed = knockoutResults[key];
+      if (confirmed === sfL[0].team.toLowerCase()) { exit[sfL[0].team]='3rd'; exit[sfL[1].team]='4th'; }
+      else if (confirmed === sfL[1].team.toLowerCase()) { exit[sfL[1].team]='3rd'; exit[sfL[0].team]='4th'; }
+      else {
+        gottPairs.push([sfL[0], sfL[1]]);
+        const w=matchSim(sfL[0],sfL[1]), l=w===sfL[0]?sfL[1]:sfL[0];
+        exit[w.team]='3rd'; exit[l.team]='4th';
+      }
     }
     if (sfW[0]&&sfW[1]) {
-      gottPairs.push([sfW[0], sfW[1]]);
-      const w=matchSim(sfW[0],sfW[1]), l=w===sfW[0]?sfW[1]:sfW[0];
-      exit[w.team]='winner'; exit[l.team]='final';
+      const key = [sfW[0].team.toLowerCase(), sfW[1].team.toLowerCase()].sort().join('|');
+      const confirmed = knockoutResults[key];
+      if (confirmed === sfW[0].team.toLowerCase()) { exit[sfW[1].team]='final'; exit[sfW[0].team]='winner'; }
+      else if (confirmed === sfW[1].team.toLowerCase()) { exit[sfW[0].team]='final'; exit[sfW[1].team]='winner'; }
+      else {
+        gottPairs.push([sfW[0], sfW[1]]);
+        const w=matchSim(sfW[0],sfW[1]), l=w===sfW[0]?sfW[1]:sfW[0];
+        exit[w.team]='winner'; exit[l.team]='final';
+      }
     }
 
     const add = (team, key, amt) => {

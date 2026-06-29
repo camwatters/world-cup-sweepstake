@@ -144,6 +144,10 @@ const PRIZE_KEYS = ['winner','runnerUp','third','pott','gott','worstGroup','wors
 export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null, oddsOverrides = null, knockoutResults = {}) {
   // Build local team list: override p (probability) only, keeping odds (pre-tournament) intact
   let localTeams = TEAMS;
+  // Teams confirmed to have won at least one knockout match. Used as fallback in simRound
+  // when assignThirds() pairs a team with a different 3rd-place opponent than the real bracket —
+  // the pair key won't match knockoutResults, but we still know the confirmed winner should advance.
+  const confirmedWinners = new Set(Object.values(knockoutResults));
   let localTeamMap = teamMap;
   if (oddsOverrides && Object.keys(oddsOverrides).length > 0) {
     const rawP = draw.map(e => 1 / (oddsOverrides[e.team] ?? e.odds));
@@ -213,13 +217,21 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     ]);
 
     // Pair-based: looks up confirmed result by sorted "teama|teamb" key; falls back to simulation.
+    // Also handles bracket-mismatch: when assignThirds() produces a different pair than the real
+    // bracket, the exact key won't match — so if one team is a confirmed winner and the other
+    // hasn't won any match yet, the confirmed winner always advances.
     function simRound(pairs, round) {
       return pairs.map(([a, b]) => {
         if (!a) return b; if (!b) return a;
-        const key = [a.team.toLowerCase(), b.team.toLowerCase()].sort().join('|');
+        const aLower = a.team.toLowerCase();
+        const bLower = b.team.toLowerCase();
+        const key = [aLower, bLower].sort().join('|');
         const confirmed = knockoutResults[key];
-        if (confirmed === a.team.toLowerCase()) { exit[b.team] = round; return a; }
-        if (confirmed === b.team.toLowerCase()) { exit[a.team] = round; return b; }
+        if (confirmed === aLower) { exit[b.team] = round; return a; }
+        if (confirmed === bLower) { exit[a.team] = round; return b; }
+        // Fallback: one team is a confirmed winner, the other has no confirmed win yet
+        if (confirmedWinners.has(aLower) && !confirmedWinners.has(bLower)) { exit[b.team] = round; return a; }
+        if (confirmedWinners.has(bLower) && !confirmedWinners.has(aLower)) { exit[a.team] = round; return b; }
         gottPairs.push([a, b]);
         const w = matchSim(a, b), l = w === a ? b : a;
         exit[l.team] = round; return w;

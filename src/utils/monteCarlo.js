@@ -159,11 +159,17 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
   // Used to prevent confirmed losers from advancing in mismatched bracket pairings
   // (e.g. Germany lost R16 but assignThirds() pairs Germany with a 0-win sim opponent —
   // neither win-count condition fires so Germany gets randomly simulated without this guard).
+  // Teams confirmed eliminated after winning at least one knockout match.
+  // We only mark a team as a confirmed loser if they also have confirmed wins —
+  // a team with 0 wins that appears here is almost certainly an ESPN pre-population
+  // artefact for an unplayed match (e.g. Colombia's R32 slot filled with a placeholder
+  // result). Teams genuinely eliminated in their first knockout match are covered by
+  // the exact pair-key check in simRound and don't need this extra guard.
   const koLosers = new Set();
   for (const [pairKey, winner] of Object.entries(knockoutResults)) {
     const [a, b] = pairKey.split('|');
-    if (a !== winner) koLosers.add(a);
-    if (b !== winner) koLosers.add(b);
+    const loser = a !== winner ? a : b;
+    if ((koWinCount[loser] ?? 0) > 0) koLosers.add(loser);
   }
   let localTeamMap = teamMap;
   if (oddsOverrides && Object.keys(oddsOverrides).length > 0) {

@@ -858,8 +858,14 @@ function BracketTab({ knockoutEvents, historyEvents = [], qualifiers }) {
           // At least one confirmed winner → their win count sets the floor round.
           return ROUND_LABEL_BY_TIER[maxW] ?? "Final";
         }
-        // Both TBD (0 wins): use the event date — R16 slots (July 6-7) are after R16_CUTOFF;
-        // remaining R32 games (Colombia/Ghana July 4 02:30 UTC) are before it.
+        // Both TBD (0 wins): check ESPN's placeholder names first — "Round of 32 N Winner"
+        // means the team comes from R32, so this game is R16; "Round of 16 N Winner" → QF; etc.
+        const tbd = (home.team?.displayName ?? "") + " " + (away.team?.displayName ?? "");
+        if (/round of 32/i.test(tbd)) return "Round of 16";
+        if (/round of 16/i.test(tbd)) return "Quarter-finals";
+        if (/quarter/i.test(tbd)) return "Semi-finals";
+        if (/semi/i.test(tbd)) return "Final";
+        // Last resort: date-based — R16 slots (July 6-7) are after R16_CUTOFF_MS.
         return Date.parse(event.date) > R16_CUTOFF_MS ? "Round of 16" : "Round of 32";
       }
       return "Knockout Stage";

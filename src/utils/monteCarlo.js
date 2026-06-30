@@ -155,6 +155,16 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     const k = (w ?? "").toLowerCase();
     koWinCount[k] = (koWinCount[k] ?? 0) + 1;
   }
+  // Teams confirmed eliminated: appear in a knockout result pair but not as the winner.
+  // Used to prevent confirmed losers from advancing in mismatched bracket pairings
+  // (e.g. Germany lost R16 but assignThirds() pairs Germany with a 0-win sim opponent —
+  // neither win-count condition fires so Germany gets randomly simulated without this guard).
+  const koLosers = new Set();
+  for (const [pairKey, winner] of Object.entries(knockoutResults)) {
+    const [a, b] = pairKey.split('|');
+    if (a !== winner) koLosers.add(a);
+    if (b !== winner) koLosers.add(b);
+  }
   let localTeamMap = teamMap;
   if (oddsOverrides && Object.keys(oddsOverrides).length > 0) {
     const rawP = draw.map(e => 1 / (oddsOverrides[e.team] ?? e.odds));
@@ -247,6 +257,11 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
           const bWins = koWinCount[bLower] ?? 0;
           if (aWins > roundExpectedPrior && bWins <= roundExpectedPrior) { exit[b.team] = round; return a; }
           if (bWins > roundExpectedPrior && aWins <= roundExpectedPrior) { exit[a.team] = round; return b; }
+          // Confirmed losers: if one team is knocked out and the other isn't, eliminate the loser.
+          // Handles the case where a confirmed-eliminated team faces a different sim opponent
+          // (mismatched bracket) and neither win-count condition fires.
+          if (koLosers.has(aLower) && !koLosers.has(bLower)) { exit[a.team] = round; return b; }
+          if (koLosers.has(bLower) && !koLosers.has(aLower)) { exit[b.team] = round; return a; }
         }
         gottPairs.push([a, b]);
         const w = matchSim(a, b), l = w === a ? b : a;
@@ -307,7 +322,7 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     const byExit = r => localTeams.filter(t => exit[t.team]===r);
     const reachedOrBeyond = stage => localTeams.filter(t => exitRank(exit[t.team]) > exitRank(stage));
     // worst() uses t.odds (pre-tournament) — intentional, current odds not used here
-    const worst = ts => ts.length ? ts.reduce((a,b) => a.odds>b.odds?a:b) : null;
+    const worst = ts => ts.length ? ts.reduce((a,b) => b.odds>a.odds ? b : b.odds===a.odds && Math.random()<0.5 ? b : a) : null;
 
     add(byExit('winner')[0], 'winner', 200);
     add(byExit('final')[0],  'runnerUp', 80);

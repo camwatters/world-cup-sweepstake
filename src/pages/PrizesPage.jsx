@@ -65,6 +65,9 @@ function buildKnockoutResults(events) {
     const home = comp?.competitors?.find(c => c.homeAway === "home");
     const away = comp?.competitors?.find(c => c.homeAway === "away");
     if (!home || !away) continue;
+    // Skip matches that haven't kicked off yet — ESPN sometimes pre-populates future
+    // bracket slots with a winner flag, which would incorrectly mark live teams as losers.
+    if (Date.parse(event.date) > Date.now()) continue;
     // Primary guard: skip if ESPN labels this as group stage (handles name-variant edge cases).
     const groupName = (comp?.groups?.name ?? "").toLowerCase().replace(/[\s-]/g, "");
     if (groupName.startsWith("group")) continue;

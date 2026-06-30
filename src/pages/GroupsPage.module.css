@@ -502,8 +502,12 @@
 }
 
 .teamWinner {
-  color: var(--accent);
-  font-weight: 600;
+  color: #4ade80;
+  font-weight: 700;
+}
+
+.teamLoser {
+  opacity: 0.38;
 }
 
 .staticTeamConfirmed {

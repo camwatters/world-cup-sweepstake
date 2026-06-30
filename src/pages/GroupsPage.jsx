@@ -562,7 +562,7 @@ function FixtureRow({ event }) {
         )}
       </div>
       <div className={styles.fixtureTeams}>
-        <TeamSlot entry={homeEntry} team={home?.team} score={home?.score} isWinner={home?.winner === true} />
+        <TeamSlot entry={homeEntry} team={home?.team} score={home?.score} isWinner={home?.winner === true} isLoser={away?.winner === true} />
         <div className={styles.vs}>
           {isFinished || isLive ? (
             <span className={styles.score}>{home?.score} – {away?.score}</span>
@@ -570,7 +570,7 @@ function FixtureRow({ event }) {
             <span className={styles.vsText}>vs</span>
           )}
         </div>
-        <TeamSlot entry={awayEntry} team={away?.team} score={away?.score} isWinner={away?.winner === true} right />
+        <TeamSlot entry={awayEntry} team={away?.team} score={away?.score} isWinner={away?.winner === true} isLoser={home?.winner === true} right />
       </div>
       {(competition?.groups?.name || metaParts.length > 0) && (
         <div className={styles.fixtureGroup}>
@@ -584,10 +584,10 @@ function FixtureRow({ event }) {
   );
 }
 
-function TeamSlot({ entry, team, right, isWinner }) {
+function TeamSlot({ entry, team, right, isWinner, isLoser }) {
   const name = team?.displayName ?? team?.shortDisplayName ?? "";
   return (
-    <div className={`${styles.teamSlot} ${right ? styles.right : ""}`}>
+    <div className={`${styles.teamSlot} ${right ? styles.right : ""}${isLoser ? ` ${styles.teamLoser}` : ""}`}>
       {!right && (entry ? <Flag code={entry.flag} size={24} /> : <img src={team?.logos?.[0]?.href} width={36} height={24} alt="" style={{ objectFit: "contain" }} />)}
       <div className={styles.slotInfo}>
         <span className={`${styles.slotName}${isWinner ? ` ${styles.teamWinner}` : ""}`}>{name}</span>

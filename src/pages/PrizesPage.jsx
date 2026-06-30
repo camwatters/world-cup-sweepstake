@@ -45,7 +45,7 @@ function knockoutScoreboardUrl() {
 
 // Fetch knockout events from the single knockout-only scoreboard window, cached per-day.
 async function fetchKnockoutEvents() {
-  const cacheKey = `espn_ko_v6_${new Date().toISOString().slice(0, 10)}`;
+  const cacheKey = `espn_ko_v7_${new Date().toISOString().slice(0, 10)}`;
   const cached = getCached(cacheKey, TTL.SCORES);
   if (cached) return cached;
   const res = await fetch(knockoutScoreboardUrl());
@@ -67,7 +67,11 @@ function buildKnockoutResults(events) {
     if (!home || !away) continue;
     // Skip matches that haven't kicked off yet — ESPN sometimes pre-populates future
     // bracket slots with a winner flag, which would incorrectly mark live teams as losers.
-    if (Date.parse(event.date) > Date.now()) continue;
+    // Also skip if the date doesn't parse (NaN > anything is false, so the guard would no-op).
+    const state = comp?.status?.type?.state;
+    if (state === "pre") continue;
+    const eventMs = Date.parse(event.date);
+    if (isNaN(eventMs) || eventMs > Date.now()) continue;
     // Primary guard: skip if ESPN labels this as group stage (handles name-variant edge cases).
     const groupName = (comp?.groups?.name ?? "").toLowerCase().replace(/[\s-]/g, "");
     if (groupName.startsWith("group")) continue;

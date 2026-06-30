@@ -562,7 +562,7 @@ function FixtureRow({ event }) {
         )}
       </div>
       <div className={styles.fixtureTeams}>
-        <TeamSlot entry={homeEntry} team={home?.team} score={home?.score} />
+        <TeamSlot entry={homeEntry} team={home?.team} score={home?.score} isWinner={home?.winner === true} />
         <div className={styles.vs}>
           {isFinished || isLive ? (
             <span className={styles.score}>{home?.score} – {away?.score}</span>
@@ -570,7 +570,7 @@ function FixtureRow({ event }) {
             <span className={styles.vsText}>vs</span>
           )}
         </div>
-        <TeamSlot entry={awayEntry} team={away?.team} score={away?.score} right />
+        <TeamSlot entry={awayEntry} team={away?.team} score={away?.score} isWinner={away?.winner === true} right />
       </div>
       {(competition?.groups?.name || metaParts.length > 0) && (
         <div className={styles.fixtureGroup}>
@@ -584,13 +584,13 @@ function FixtureRow({ event }) {
   );
 }
 
-function TeamSlot({ entry, team, right }) {
+function TeamSlot({ entry, team, right, isWinner }) {
   const name = team?.displayName ?? team?.shortDisplayName ?? "";
   return (
     <div className={`${styles.teamSlot} ${right ? styles.right : ""}`}>
       {!right && (entry ? <Flag code={entry.flag} size={24} /> : <img src={team?.logos?.[0]?.href} width={36} height={24} alt="" style={{ objectFit: "contain" }} />)}
       <div className={styles.slotInfo}>
-        <span className={styles.slotName}>{name}</span>
+        <span className={`${styles.slotName}${isWinner ? ` ${styles.teamWinner}` : ""}`}>{name}</span>
         {entry?.person && <span className={styles.slotOwner}>{entry.person}</span>}
       </div>
       {right && (entry ? <Flag code={entry.flag} size={24} /> : <img src={team?.logos?.[0]?.href} width={36} height={24} alt="" style={{ objectFit: "contain" }} />)}
@@ -834,20 +834,33 @@ function BracketTab({ knockoutEvents, historyEvents = [], qualifiers }) {
       if (k) winCount[k] = (winCount[k] ?? 0) + 1;
     });
     const ROUND_LABEL_BY_TIER = ["Round of 32", "Round of 16", "Quarter-finals", "Semi-finals", "Final"];
+    // R16 games start July 4; use this to classify TBD-vs-TBD pre-listed R16 slots.
+    const R16_CUTOFF_MS = Date.parse("2026-07-04T12:00:00Z");
     function roundLabelFromWins(event) {
       const comp = event.competitions?.[0];
       const home = comp?.competitors?.find(c => c.homeAway === "home");
       const away = comp?.competitors?.find(c => c.homeAway === "away");
       if (home && away) {
-        const hw = winCount[normalizeDisplayName(home.team?.displayName ?? "")] ?? 0;
-        const aw = winCount[normalizeDisplayName(away.team?.displayName ?? "")] ?? 0;
-        // Completed games: use min wins — the loser's count identifies the round they exited
-        // (R32 loser has 0 wins → "Round of 32"; R16 loser has 1 win → "Round of 16").
-        // Upcoming/pre-listed: use max wins — the most-experienced team sets the floor
-        // (Paraguay 1 win vs TBD 0 wins → "Round of 16", not "Round of 32").
-        // ESPN labels the R32 round as "round-of-16" so we never use their groups.name.
-        const isCompleted = home.winner === true || away.winner === true;
-        return ROUND_LABEL_BY_TIER[isCompleted ? Math.min(hw, aw) : Math.max(hw, aw)] ?? "Final";
+        const hk = normalizeDisplayName(home.team?.displayName ?? "");
+        const ak = normalizeDisplayName(away.team?.displayName ?? "");
+        const hw = winCount[hk] ?? 0;
+        const aw = winCount[ak] ?? 0;
+        // Use matchWinners (same source as winCount) to detect completed games — more reliable
+        // than home.winner===true which can be absent on history-endpoint responses.
+        const pairKey = hk && ak ? [hk, ak].sort().join("|") : null;
+        const isCompleted = !!(pairKey && matchWinners[pairKey]);
+        if (isCompleted) {
+          // Loser's win count = round they exited (R32 loser has 0 → "Round of 32").
+          return ROUND_LABEL_BY_TIER[Math.min(hw, aw)] ?? "Final";
+        }
+        const maxW = Math.max(hw, aw);
+        if (maxW > 0) {
+          // At least one confirmed winner → their win count sets the floor round.
+          return ROUND_LABEL_BY_TIER[maxW] ?? "Final";
+        }
+        // Both TBD (0 wins): use the event date — R16 slots (July 6-7) are after R16_CUTOFF;
+        // remaining R32 games (Colombia/Ghana July 4 02:30 UTC) are before it.
+        return Date.parse(event.date) > R16_CUTOFF_MS ? "Round of 16" : "Round of 32";
       }
       return "Knockout Stage";
     }

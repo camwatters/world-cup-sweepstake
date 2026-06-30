@@ -147,7 +147,14 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
   // Teams confirmed to have won at least one knockout match. Used as fallback in simRound
   // when assignThirds() pairs a team with a different 3rd-place opponent than the real bracket —
   // the pair key won't match knockoutResults, but we still know the confirmed winner should advance.
-  const confirmedWinners = new Set(Object.values(knockoutResults));
+  // Per-team count of confirmed knockout wins (keyed lower-case). A team with >N wins has
+  // already advanced past the round that requires N prior wins, so it must advance in the sim
+  // even when assignThirds() pairs it with a different opponent than the real bracket.
+  const koWinCount = {};
+  for (const w of Object.values(knockoutResults)) {
+    const k = (w ?? "").toLowerCase();
+    koWinCount[k] = (koWinCount[k] ?? 0) + 1;
+  }
   let localTeamMap = teamMap;
   if (oddsOverrides && Object.keys(oddsOverrides).length > 0) {
     const rawP = draw.map(e => 1 / (oddsOverrides[e.team] ?? e.odds));
@@ -217,11 +224,11 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     ]);
 
     // Pair-based: looks up confirmed result by sorted "teama|teamb" key; falls back to simulation.
-    // R32-only fallback: assignThirds() may pair a confirmed winner with a different 3rd-place
-    // team than the real bracket, so the exact key misses. In R32 only, if one team has a
-    // confirmed win and the other has none, the confirmed winner advances. This is safe for R32
-    // because 3rd-place slots are the only source of mismatch. For R16+, both finalists won
-    // their R32 (confirmed or simulated), so the fallback would fire incorrectly — omitted.
+    // Win-count fallback: assignThirds() may pair a confirmed team with a different opponent than
+    // the real bracket, so the exact key misses. For each round we know how many prior knockout
+    // wins a team must already have to reach it (r32:0, r16:1, qf:2, sf:3). If one team has more
+    // confirmed wins than that threshold and the other does not, the confirmed team advances —
+    // guaranteeing confirmed winners progress through every round, not just R32.
     function simRound(pairs, round) {
       return pairs.map(([a, b]) => {
         if (!a) return b; if (!b) return a;
@@ -231,9 +238,15 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
         const confirmed = knockoutResults[key];
         if (confirmed === aLower) { exit[b.team] = round; return a; }
         if (confirmed === bLower) { exit[a.team] = round; return b; }
-        if (round === 'r32') {
-          if (confirmedWinners.has(aLower) && !confirmedWinners.has(bLower)) { exit[b.team] = round; return a; }
-          if (confirmedWinners.has(bLower) && !confirmedWinners.has(aLower)) { exit[a.team] = round; return b; }
+        // Fallback: if one team has more confirmed wins than needed to reach THIS round,
+        // and the other doesn't, advance the confirmed team (handles mismatched pairings
+        // where assignThirds() produces a different opponent than the real bracket).
+        const roundExpectedPrior = { r32: 0, r16: 1, qf: 2, sf: 3 }[round] ?? -1;
+        if (roundExpectedPrior >= 0) {
+          const aWins = koWinCount[aLower] ?? 0;
+          const bWins = koWinCount[bLower] ?? 0;
+          if (aWins > roundExpectedPrior && bWins <= roundExpectedPrior) { exit[b.team] = round; return a; }
+          if (bWins > roundExpectedPrior && aWins <= roundExpectedPrior) { exit[a.team] = round; return b; }
         }
         gottPairs.push([a, b]);
         const w = matchSim(a, b), l = w === a ? b : a;

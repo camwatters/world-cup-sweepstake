@@ -45,7 +45,7 @@ function knockoutScoreboardUrl() {
 
 // Fetch knockout events from the single knockout-only scoreboard window, cached per-day.
 async function fetchKnockoutEvents() {
-  const cacheKey = `espn_ko_v5_${new Date().toISOString().slice(0, 10)}`;
+  const cacheKey = `espn_ko_v6_${new Date().toISOString().slice(0, 10)}`;
   const cached = getCached(cacheKey, TTL.SCORES);
   if (cached) return cached;
   const res = await fetch(knockoutScoreboardUrl());
@@ -65,6 +65,9 @@ function buildKnockoutResults(events) {
     const home = comp?.competitors?.find(c => c.homeAway === "home");
     const away = comp?.competitors?.find(c => c.homeAway === "away");
     if (!home || !away) continue;
+    // Primary guard: skip if ESPN labels this as group stage (handles name-variant edge cases).
+    const groupName = (comp?.groups?.name ?? "").toLowerCase().replace(/[\s-]/g, "");
+    if (groupName.startsWith("group")) continue;
     // Winner flag only — safe for matches that go to ET/pens (level at 90 mins).
     const winnerDisplay = home.winner === true ? home.team?.displayName
       : away.winner === true ? away.team?.displayName
@@ -74,7 +77,9 @@ function buildKnockoutResults(events) {
     const awayR = resolveEspnTeam(away.team?.displayName ?? "");
     const winR  = resolveEspnTeam(winnerDisplay);
     if (!homeR || !awayR || !winR) continue;
+    // Secondary guard: skip within-group pairs that ESPN didn't label (team membership check).
     const pairKey = [homeR.toLowerCase(), awayR.toLowerCase()].sort().join("|");
+    if (KO_GROUP_PAIRS.has(pairKey)) continue;
     results[pairKey] = winR.toLowerCase();
   }
   return results;
@@ -122,6 +127,15 @@ const ESPN_ALIASES = {
 
 const drawLookup = {};
 draw.forEach(e => { drawLookup[e.team.toLowerCase()] = e; });
+
+// Within-group pairs: sorted lowercase names joined by |. Used to filter group
+// stage games out of the knockout scoreboard (group finals overlap June 28).
+const KO_GROUP_PAIRS = new Set();
+Object.values(GROUPS).forEach(names => {
+  for (let i = 0; i < names.length; i++)
+    for (let j = i + 1; j < names.length; j++)
+      KO_GROUP_PAIRS.add([names[i].toLowerCase(), names[j].toLowerCase()].sort().join('|'));
+});
 
 function resolveEspnTeam(espnName) {
   const lower = espnName.toLowerCase();
@@ -378,10 +392,10 @@ export default function PrizesPage() {
         knockoutResults = buildKnockoutResults(koEvents);
         setKoResultsCache(knockoutResults);
         const { r32, r16 } = computeRoundWinners(knockoutResults);
-        const worstR32 = r32.size >= 16 ? computeWorstKnockoutTeam(r32) : null;
-        const worstR16 = r16.size >= 8  ? computeWorstKnockoutTeam(r16) : null;
-        setWorstL16Entry(worstR32 ? { ...worstR32, confirmed: true } : null);
-        setWorstQFEntry(worstR16  ? { ...worstR16,  confirmed: true } : null);
+        const worstR32 = r32.size > 0 ? computeWorstKnockoutTeam(r32) : null;
+        const worstR16 = r16.size > 0 ? computeWorstKnockoutTeam(r16) : null;
+        setWorstL16Entry(worstR32 ? { ...worstR32, confirmed: r32.size >= 16 } : null);
+        setWorstQFEntry(worstR16  ? { ...worstR16,  confirmed: r16.size >= 8  } : null);
         setR32LockedCount(Object.keys(knockoutResults).length);
       }
     } catch {}

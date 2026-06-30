@@ -1,8 +1,18 @@
 import { useEffect, useState } from "react";
 import { draw } from "../data/draw";
+import { GROUPS } from "../utils/monteCarlo";
 import Flag from "../components/Flag";
 import { getCached, setCache, TTL } from "../utils/cache";
 import styles from "./GroupsPage.module.css";
+
+// Pre-computed set of within-group team pairs (sorted lowercase, joined by |).
+// Any match between two teams in this set is definitively a group stage match.
+const GROUP_PAIRS = new Set();
+Object.values(GROUPS).forEach(names => {
+  for (let i = 0; i < names.length; i++)
+    for (let j = i + 1; j < names.length; j++)
+      GROUP_PAIRS.add([names[i].toLowerCase(), names[j].toLowerCase()].sort().join('|'));
+});
 
 const ESPN_STANDINGS = "https://site.api.espn.com/apis/v2/sports/soccer/fifa.world/standings?season=2026";
 
@@ -22,7 +32,7 @@ function groupStageHistoryUrl() {
 
 const CACHE_KEY_STANDINGS = "espn_standings";
 const CACHE_KEY_SCOREBOARD = `espn_scoreboard_${new Date().toISOString().slice(0, 10)}`;
-const CACHE_KEY_GS_HISTORY = `espn_gs_history_${new Date().toISOString().slice(0, 10)}`;
+const CACHE_KEY_GS_HISTORY = `espn_gs_history_v2_${new Date().toISOString().slice(0, 10)}`;
 
 const ESPN_ALIASES = {
   "czechia": "czech republic",
@@ -361,8 +371,16 @@ export default function GroupsPage() {
   const qualifiers = computeQualifiers(groups, fixtureData);
 
   const knockoutEvents = events.filter((e) => {
-    const groupName = (e.competitions?.[0]?.groups?.name ?? "").toLowerCase().replace(/-/g, "");
-    return groupName !== "groupstage";
+    const groupName = (e.competitions?.[0]?.groups?.name ?? "").toLowerCase().replace(/[\s-]/g, "");
+    if (groupName.startsWith("group")) return false;
+    const comp = e.competitions?.[0];
+    const home = comp?.competitors?.find(c => c.homeAway === "home");
+    const away = comp?.competitors?.find(c => c.homeAway === "away");
+    if (!home || !away) return true;
+    const hk = normalizeDisplayName(home.team?.displayName ?? "");
+    const ak = normalizeDisplayName(away.team?.displayName ?? "");
+    if (!hk || !ak) return true;
+    return !GROUP_PAIRS.has([hk, ak].sort().join('|'));
   });
 
   return (
@@ -730,27 +748,24 @@ function roundNameTier(name) {
   return -1;
 }
 
-// ESPN doesn't set groups.name on knockout events, so infer round from date.
-function knockoutRoundLabel(event) {
-  const espnName = event.competitions?.[0]?.groups?.name;
-  if (espnName) return espnName;
-  const d = new Date(event.competitions?.[0]?.date ?? event.date ?? "");
-  const m = d.getUTCMonth() + 1, day = d.getUTCDate();
-  if ((m === 6 && day >= 28) || (m === 7 && day <= 3)) return "Round of 32";
-  if (m === 7 && day >= 4 && day <= 7) return "Round of 16";
-  if (m === 7 && day >= 9 && day <= 11) return "Quarter-finals";
-  if (m === 7 && (day === 14 || day === 15)) return "Semi-finals";
-  if (m === 7 && day === 19) return "Final";
-  return "Knockout Stage";
-}
-
 function BracketTab({ knockoutEvents, historyEvents = [], qualifiers }) {
   const best3rdAssignment = computeBest3rdAssignment(qualifiers.allThirds, qualifiers.best8thirds);
-  // Merge history knockout events (June 28+) with current scoreboard events so that
-  // completed matches from yesterday are included (current scoreboard only covers today→+7).
+  // Filter history events to knockout-only.
+  // Hard date cutoff: group stage finals were ~02:00 UTC June 28; first R32 game was ~19:00 UTC
+  // June 28. Anything before noon UTC June 28 is definitively group stage.
+  const KO_CUTOFF_MS = Date.parse("2026-06-28T12:00:00Z");
   const historyKnockout = historyEvents.filter(e => {
-    const d = new Date(e.competitions?.[0]?.date ?? e.date ?? "");
-    return (d.getUTCMonth() === 5 && d.getUTCDate() >= 28) || d.getUTCMonth() >= 6;
+    if (Date.parse(e.date) < KO_CUTOFF_MS) return false;
+    const groupName = (e.competitions?.[0]?.groups?.name ?? "").toLowerCase().replace(/[\s-]/g, "");
+    if (groupName.startsWith("group")) return false;
+    const comp = e.competitions?.[0];
+    const home = comp?.competitors?.find(c => c.homeAway === "home");
+    const away = comp?.competitors?.find(c => c.homeAway === "away");
+    if (!home || !away) return false;
+    const hk = normalizeDisplayName(home.team?.displayName ?? "");
+    const ak = normalizeDisplayName(away.team?.displayName ?? "");
+    if (!hk || !ak) return false;
+    return !GROUP_PAIRS.has([hk, ak].sort().join('|'));
   });
   const allKnockoutEvents = [
     ...historyKnockout.filter(h => !knockoutEvents.some(c => c.id === h.id)),
@@ -809,10 +824,36 @@ function BracketTab({ knockoutEvents, historyEvents = [], qualifiers }) {
     // SF winners
     const sfW = [[0,1],[2,3]].map(([a, b]) => pairWinner(qfW[a], qfW[b]));
 
+    // Count how many knockout wins each team has (used to determine round).
+    // Teams with 0 wins → playing in R32, 1 win → R16, 2 → QF, 3 → SF, 4 → Final.
+    // This is more reliable than date-based inference since some R32 matches
+    // occur on the same date as projected R16 start dates.
+    const winCount = {};
+    Object.values(matchWinners).forEach(w => {
+      const k = normalizeDisplayName(w);
+      if (k) winCount[k] = (winCount[k] ?? 0) + 1;
+    });
+    const ROUND_LABEL_BY_TIER = ["Round of 32", "Round of 16", "Quarter-finals", "Semi-finals", "Final"];
+    function roundLabelFromWins(event) {
+      const comp = event.competitions?.[0];
+      const home = comp?.competitors?.find(c => c.homeAway === "home");
+      const away = comp?.competitors?.find(c => c.homeAway === "away");
+      if (home && away) {
+        const hw = winCount[normalizeDisplayName(home.team?.displayName ?? "")] ?? 0;
+        const aw = winCount[normalizeDisplayName(away.team?.displayName ?? "")] ?? 0;
+        // Use max wins, not min: correctly handles pre-listed future-round games where one
+        // confirmed winner (e.g. Paraguay, 1 win) faces a TBD opponent (0 wins) — min would
+        // wrongly call that R32. ESPN labels the R32 round as "round-of-16" in their API
+        // so we can't trust their groups.name label for round classification.
+        return ROUND_LABEL_BY_TIER[Math.max(hw, aw)] ?? "Final";
+      }
+      return "Knockout Stage";
+    }
+
     // Determine the highest round tier already shown by ESPN
     const byRound = {};
     allKnockoutEvents.forEach((e) => {
-      const round = knockoutRoundLabel(e);
+      const round = roundLabelFromWins(e);
       if (!byRound[round]) byRound[round] = [];
       byRound[round].push(e);
     });
@@ -897,7 +938,9 @@ function BracketTab({ knockoutEvents, historyEvents = [], qualifiers }) {
 
     return (
       <div className={styles.bracket}>
-        {Object.entries(byRound).map(([round, events]) => (
+        {Object.entries(byRound)
+          .sort(([a], [b]) => roundNameTier(a) - roundNameTier(b))
+          .map(([round, events]) => (
           <div key={round} className={styles.bracketRound}>
             <h3 className={styles.bracketRoundTitle}>{round}</h3>
             <div className={styles.bracketMatches}>

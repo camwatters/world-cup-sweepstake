@@ -841,11 +841,13 @@ function BracketTab({ knockoutEvents, historyEvents = [], qualifiers }) {
       if (home && away) {
         const hw = winCount[normalizeDisplayName(home.team?.displayName ?? "")] ?? 0;
         const aw = winCount[normalizeDisplayName(away.team?.displayName ?? "")] ?? 0;
-        // Use max wins, not min: correctly handles pre-listed future-round games where one
-        // confirmed winner (e.g. Paraguay, 1 win) faces a TBD opponent (0 wins) — min would
-        // wrongly call that R32. ESPN labels the R32 round as "round-of-16" in their API
-        // so we can't trust their groups.name label for round classification.
-        return ROUND_LABEL_BY_TIER[Math.max(hw, aw)] ?? "Final";
+        // Completed games: use min wins — the loser's count identifies the round they exited
+        // (R32 loser has 0 wins → "Round of 32"; R16 loser has 1 win → "Round of 16").
+        // Upcoming/pre-listed: use max wins — the most-experienced team sets the floor
+        // (Paraguay 1 win vs TBD 0 wins → "Round of 16", not "Round of 32").
+        // ESPN labels the R32 round as "round-of-16" so we never use their groups.name.
+        const isCompleted = home.winner === true || away.winner === true;
+        return ROUND_LABEL_BY_TIER[isCompleted ? Math.min(hw, aw) : Math.max(hw, aw)] ?? "Final";
       }
       return "Knockout Stage";
     }

@@ -45,7 +45,7 @@ function knockoutScoreboardUrl() {
 
 // Fetch knockout events from the single knockout-only scoreboard window, cached per-day.
 async function fetchKnockoutEvents() {
-  const cacheKey = `espn_ko_v7_${new Date().toISOString().slice(0, 10)}`;
+  const cacheKey = `espn_ko_v8_${new Date().toISOString().slice(0, 10)}`;
   const cached = getCached(cacheKey, TTL.SCORES);
   if (cached) return cached;
   const res = await fetch(knockoutScoreboardUrl());
@@ -65,9 +65,13 @@ function buildKnockoutResults(events) {
     const home = comp?.competitors?.find(c => c.homeAway === "home");
     const away = comp?.competitors?.find(c => c.homeAway === "away");
     if (!home || !away) continue;
-    // Skip matches that haven't kicked off yet — ESPN sometimes pre-populates future
-    // bracket slots with a winner flag, which would incorrectly mark live teams as losers.
-    // Also skip if the date doesn't parse (NaN > anything is false, so the guard would no-op).
+    // Only process matches ESPN itself has marked as completed.
+    // Pre-populated future bracket slots (ESPN fills these as soon as a team advances)
+    // are NOT marked completed, so this is more robust than date parsing.
+    // The date guard is kept as a belt-and-braces fallback for edge cases where ESPN
+    // mistakenly marks a future slot as completed.
+    const completed = comp?.status?.type?.completed;
+    if (!completed) continue;
     const state = comp?.status?.type?.state;
     if (state === "pre") continue;
     const eventMs = Date.parse(event.date);

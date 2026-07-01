@@ -8,7 +8,29 @@
 //   QF  circular pair k  →  qfW[k]
 //   SF  circular pair k  →  sfW[k]
 
+import { draw } from '../data/draw';
+
 const CIR_R16 = [0, 1, 4, 5, 2, 3, 6, 7];
+
+// resolveSlot returns { label, team } with no entry/flag — look it up from draw data.
+const ALIASES = {
+  czechia: 'czech republic', 'bosnia-herzegovina': 'bosnia and herzegovina',
+  'türkiye': 'turkey', 'united states': 'usa', 'curaçao': 'curacao',
+  'congo dr': 'dr congo', 'korea republic': 'south korea', 'cabo verde': 'cape verde',
+};
+const TEAM_MAP = {};
+draw.forEach(e => { TEAM_MAP[e.team.toLowerCase()] = e; });
+
+function flagCode(teamName) {
+  if (!teamName) return null;
+  const lower = teamName.toLowerCase();
+  const key   = ALIASES[lower] ?? lower;
+  if (TEAM_MAP[key]) return TEAM_MAP[key].flag;
+  for (const [k, v] of Object.entries(TEAM_MAP)) {
+    if (key.includes(k) || k.includes(key)) return v.flag;
+  }
+  return null;
+}
 
 const GOLD   = '#f59e0b';
 const BLUE   = '#60a5fa';
@@ -65,7 +87,7 @@ export default function CircularBracket({ resolvedR32, slotW, r16W, qfW, sfW, pa
     const mi   = Math.floor(i / 2);
     const side = i % 2 === 0 ? resolvedR32[mi].home : resolvedR32[mi].away;
     const name = side.team || null;
-    const code = side.entry?.flag || null;
+    const code = flagCode(name);        // resolveSlot has no entry; look up from draw
     const w    = slotW[mi];
     const won  = !!(w && name && same(name, w));
     const lost = !!(w && name && !same(name, w));
@@ -148,10 +170,7 @@ export default function CircularBracket({ resolvedR32, slotW, r16W, qfW, sfW, pa
   ));
 
   // ── find winner entry for centre circle ───────────────────────────────────
-  const winEntry = finalW
-    ? resolvedR32.flatMap(m => [m.home, m.away]).find(s => s.team && same(s.team, finalW))
-    : null;
-  const winCode = winEntry?.entry?.flag;
+  const winCode = flagCode(finalW);
 
   // ── render ────────────────────────────────────────────────────────────────
   return (

@@ -823,15 +823,42 @@ function BracketTab({ knockoutEvents, historyEvents = [], qualifiers }) {
       away: resolveSlot(m.away, qualifiers, best3rdAssignment),
     }));
 
-    // R32 slot winners: check matchWinners for each resolved slot pair
-    const koAllWinnerKeys = new Set(Object.values(matchWinners).map(normalizeDisplayName).filter(Boolean));
-    const slotW = resolvedR32.map(({ home, away }) => {
-      const hk = normalizeDisplayName(home.team);
-      const ak = normalizeDisplayName(away.team);
-      if (hk && koAllWinnerKeys.has(hk)) return home.team;
-      if (ak && koAllWinnerKeys.has(ak)) return away.team;
-      return null;
+    // Once ESPN lists the real R32 fixture, prefer it over our standings-derived guess —
+    // the "Best 3rd" slot prediction can differ from the official draw's actual tiebreak
+    // result, and unlike list view (which reads real events directly), the wheel bracket
+    // only ever sees this resolved/guessed data.
+    const R32_CUTOFF_MS = Date.parse("2026-07-04T00:00:00Z");
+    const r32Events = allKnockoutEvents.filter(e => Date.parse(e.date) < R32_CUTOFF_MS);
+    function findR32Match(slot) {
+      const certain = slot.home.guaranteed ? slot.home : slot.away.guaranteed ? slot.away : null;
+      if (!certain?.team) return null;
+      const certainKey = normalizeDisplayName(certain.team);
+      return r32Events.find((e) => {
+        const comp = e.competitions?.[0];
+        const home = comp?.competitors?.find(c => c.homeAway === "home");
+        const away = comp?.competitors?.find(c => c.homeAway === "away");
+        const hk = normalizeDisplayName(home?.team?.displayName ?? "");
+        const ak = normalizeDisplayName(away?.team?.displayName ?? "");
+        return hk === certainKey || ak === certainKey;
+      }) ?? null;
+    }
+    const displayR32 = resolvedR32.map((slot) => {
+      const match = findR32Match(slot);
+      if (!match) return slot;
+      const comp = match.competitions[0];
+      const home = comp.competitors.find(c => c.homeAway === "home");
+      const away = comp.competitors.find(c => c.homeAway === "away");
+      const actualHome = home?.team?.displayName;
+      const actualAway = away?.team?.displayName;
+      if (!actualHome || !actualAway) return slot;
+      const homeMatchesGuess = normalizeDisplayName(actualHome) === normalizeDisplayName(slot.home.team);
+      return homeMatchesGuess
+        ? { home: { ...slot.home, team: actualHome, guaranteed: true }, away: { ...slot.away, team: actualAway, guaranteed: true } }
+        : { home: { ...slot.home, team: actualAway, guaranteed: true }, away: { ...slot.away, team: actualHome, guaranteed: true } };
     });
+
+    // R32 slot winners: pair-specific lookup (same approach as pairWinner for later rounds)
+    const slotW = displayR32.map(({ home, away }) => pairWinner(home.team, away.team));
 
     // R16 winners: look up each R16 match's expected pair in matchWinners
     const r16W = R16_BY_SCHED.map(([a, b]) => pairWinner(slotW[a], slotW[b]));
@@ -904,7 +931,7 @@ function BracketTab({ knockoutEvents, historyEvents = [], qualifiers }) {
 
     // Fallback labels for unknown participants
     function r32SlotFallback(idx) {
-      const { home, away } = resolvedR32[idx];
+      const { home, away } = displayR32[idx];
       return `${home.team || home.label} / ${away.team || away.label}`;
     }
     function r16SlotFallback(idx) {
@@ -994,7 +1021,7 @@ function BracketTab({ knockoutEvents, historyEvents = [], qualifiers }) {
         <div className={styles.bracket}>
           {viewToggle}
           <CircularBracket
-            resolvedR32={resolvedR32}
+            resolvedR32={displayR32}
             slotW={slotW}
             r16W={r16W}
             qfW={qfW}

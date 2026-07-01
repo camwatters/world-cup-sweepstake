@@ -32,10 +32,9 @@ function flagCode(teamName) {
   return null;
 }
 
-const GOLD   = '#f59e0b';
-const BLUE   = '#60a5fa';
-const DIM    = '#1e3a5f';
-const DEAD   = '#0a0f1a';
+const GOLD = '#f59e0b';
+const DIM  = '#1e3a5f';
+const DEAD = 'rgba(255,255,255,0.04)'; // near-invisible for eliminated paths
 
 function xy(cx, cy, deg, r) {
   const rad = (deg - 90) * Math.PI / 180;
@@ -52,15 +51,17 @@ function junDeg(level, k) {
   return (k * tpj + (tpj - 1) / 2) * (360 / 32);
 }
 
+// Gold if the team at this node is still in the tournament (won or yet to play next).
+// Dead if they were eliminated. Dim if we don't know the team yet.
 function edgeState(teamAtNode, nextRoundWinner) {
   if (!teamAtNode) return 'none';
-  if (!nextRoundWinner) return 'active';
+  if (!nextRoundWinner) return 'won';   // advancing — extend gold forward
   return same(teamAtNode, nextRoundWinner) ? 'won' : 'lost';
 }
 function lineColor(s) {
-  return s === 'won' ? GOLD : s === 'active' ? BLUE : s === 'lost' ? DEAD : DIM;
+  return s === 'won' ? GOLD : s === 'lost' ? DEAD : DIM;
 }
-const LW = { won: 2.5, active: 2, lost: 1.5, none: 1.5 };
+const LW = { won: 2.5, lost: 1, none: 1.5 };
 
 // ─── main component ───────────────────────────────────────────────────────────
 
@@ -100,7 +101,7 @@ export default function CircularBracket({ resolvedR32, slotW, r16W, qfW, sfW, pa
   const flagLines = slots.map(({ i, mi, name, won, lost }) => {
     const [x1, y1] = flagInner(i);
     const [x2, y2] = jPos(0, mi);
-    const s = won ? 'won' : lost ? 'lost' : name ? 'active' : 'none';
+    const s = lost ? 'lost' : name ? 'won' : 'none';
     return <line key={`fl-${i}`} x1={x1} y1={y1} x2={x2} y2={y2}
       stroke={lineColor(s)} strokeWidth={LW[s]} strokeLinecap="round" />;
   });
@@ -175,9 +176,19 @@ export default function CircularBracket({ resolvedR32, slotW, r16W, qfW, sfW, pa
   // ── render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+      {/* Title — above the wheel so it's never clipped by the SVG bounds */}
+      <div style={{ textAlign: 'center', marginBottom: 8 }}>
+        <div style={{ color: '#64748b', fontSize: 11, letterSpacing: 3, fontWeight: 600, fontFamily: 'system-ui,sans-serif', textTransform: 'uppercase' }}>
+          2026 FIFA World Cup
+        </div>
+        <div style={{ color: '#334155', fontSize: 10, letterSpacing: 2, fontFamily: 'system-ui,sans-serif', textTransform: 'uppercase' }}>
+          Knockouts
+        </div>
+      </div>
+
       <div style={{ position: 'relative', width: SIZE, height: SIZE, margin: '0 auto' }}>
 
-        {/* ── SVG layer: background, lines, dots, title ── */}
+        {/* ── SVG layer: background, lines, dots ── */}
         <svg width={SIZE} height={SIZE} style={{ position: 'absolute', top: 0, left: 0 }}>
           <defs>
             <radialGradient id="cb-bg" cx="50%" cy="50%" r="50%">
@@ -194,16 +205,6 @@ export default function CircularBracket({ resolvedR32, slotW, r16W, qfW, sfW, pa
             <circle key={r} cx={CX} cy={CY} r={r}
               fill="none" stroke="#fff" strokeWidth="0.4" opacity="0.05" />
           ))}
-
-          {/* Title */}
-          <text x={CX} y={22} textAnchor="middle" fill="#475569"
-            fontSize="10" fontFamily="system-ui,sans-serif" letterSpacing="3" fontWeight="600">
-            2026 FIFA WORLD CUP
-          </text>
-          <text x={CX} y={38} textAnchor="middle" fill="#374151"
-            fontSize="9" fontFamily="system-ui,sans-serif" letterSpacing="2">
-            KNOCKOUTS
-          </text>
 
           {/* Lines — back to front */}
           {sfLines}

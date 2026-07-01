@@ -65,13 +65,13 @@ function buildKnockoutResults(events) {
     const home = comp?.competitors?.find(c => c.homeAway === "home");
     const away = comp?.competitors?.find(c => c.homeAway === "away");
     if (!home || !away) continue;
-    // Only process matches ESPN itself has marked as completed.
-    // Pre-populated future bracket slots (ESPN fills these as soon as a team advances)
-    // are NOT marked completed, so this is more robust than date parsing.
-    // The date guard is kept as a belt-and-braces fallback for edge cases where ESPN
-    // mistakenly marks a future slot as completed.
-    const completed = comp?.status?.type?.completed;
-    if (!completed) continue;
+    // Skip pre-populated future bracket slots — ESPN fills these as soon as a team
+    // advances, but the match hasn't happened. Guards in priority order:
+    // 1. winner flag absent → not finished (checked later via winnerDisplay)
+    // 2. state === "pre" → ESPN explicitly says not started
+    // 3. date in future or unparseable → clearly hasn't happened yet
+    // Note: ESPN does NOT set status.type.completed on knockout events, so we
+    // cannot use that flag here (it would drop every real result).
     const state = comp?.status?.type?.state;
     if (state === "pre") continue;
     const eventMs = Date.parse(event.date);

@@ -18,10 +18,10 @@ const ESPN_STANDINGS = "https://site.api.espn.com/apis/v2/sports/soccer/fifa.wor
 
 function scoreboardUrl() {
   const fmt = (d) => d.toISOString().slice(0, 10).replace(/-/g, "");
-  const from = new Date();
-  const to = new Date(from);
+  const from = new Date("2026-06-28"); // start of knockouts — captures all R32 results
+  const to = new Date();
   to.setDate(to.getDate() + 7);
-  return `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?limit=50&dates=${fmt(from)}-${fmt(to)}`;
+  return `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?limit=100&dates=${fmt(from)}-${fmt(to)}`;
 }
 
 // Completed group-stage results from start of tournament to today (for H2H data)
@@ -31,7 +31,7 @@ function groupStageHistoryUrl() {
 }
 
 const CACHE_KEY_STANDINGS = "espn_standings";
-const CACHE_KEY_SCOREBOARD = `espn_scoreboard_${new Date().toISOString().slice(0, 10)}`;
+const CACHE_KEY_SCOREBOARD = `espn_scoreboard_v2_${new Date().toISOString().slice(0, 10)}`;
 const CACHE_KEY_GS_HISTORY = `espn_gs_history_v2_${new Date().toISOString().slice(0, 10)}`;
 
 const ESPN_ALIASES = {

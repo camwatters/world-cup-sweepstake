@@ -342,7 +342,7 @@ export default function GroupsPage() {
   const [scoreboard, setScoreboard] = useState(null);
   const [historyEvents, setHistoryEvents] = useState(null);
   const [error, setError] = useState(null);
-  const [tab, setTab] = useState("groups");
+  const [tab, setTab] = useState("bracket");
 
   useEffect(() => {
     Promise.all([

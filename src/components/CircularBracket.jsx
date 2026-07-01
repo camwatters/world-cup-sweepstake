@@ -1,19 +1,19 @@
 // Circular wheel bracket.
-// Outer ring: 32 flag circles (one per R32 team slot).
-// Each round converges inward via bracket tree lines to the centre.
+// Architecture: SVG layer for background/lines/dots, HTML <img> layer for flag circles.
+// SVG <image> cannot load local SVG files, so flag circles are absolutely-positioned
+// HTML elements overlaid on the SVG.
 //
-// Bracket connectivity — sequential slot order maps exactly to the structure:
+// Bracket connectivity — sequential slot order maps exactly:
 //   R16 circular pair k  →  r16W[ CIR_R16[k] ]
 //   QF  circular pair k  →  qfW[k]
 //   SF  circular pair k  →  sfW[k]
 
 const CIR_R16 = [0, 1, 4, 5, 2, 3, 6, 7];
 
-const GOLD  = '#f59e0b';
-const BLUE  = '#60a5fa';
-const DIM   = '#1e3a5f';
-const DEAD  = '#0f172a';
-const WHITE = '#f1f5f9';
+const GOLD   = '#f59e0b';
+const BLUE   = '#60a5fa';
+const DIM    = '#1e3a5f';
+const DEAD   = '#0a0f1a';
 
 function xy(cx, cy, deg, r) {
   const rad = (deg - 90) * Math.PI / 180;
@@ -24,270 +24,251 @@ function same(a, b) {
   return !!(a && b && a.toLowerCase() === b.toLowerCase());
 }
 
-// Midpoint angle of a bracket sub-tree at this level and index.
-// Teams are evenly spaced at slot * (360/32).
+// Angle of a bracket sub-tree midpoint at given level and index.
 function junDeg(level, k) {
-  const tpj = Math.pow(2, level + 1);   // teams covered: 2, 4, 8, 16
-  const mid  = k * tpj + (tpj - 1) / 2;
-  return mid * (360 / 32);
+  const tpj = Math.pow(2, level + 1);
+  return (k * tpj + (tpj - 1) / 2) * (360 / 32);
 }
 
-function edgeState(teamAtNode, nextWinner) {
+function edgeState(teamAtNode, nextRoundWinner) {
   if (!teamAtNode) return 'none';
-  if (!nextWinner) return 'active';
-  return same(teamAtNode, nextWinner) ? 'won' : 'lost';
+  if (!nextRoundWinner) return 'active';
+  return same(teamAtNode, nextRoundWinner) ? 'won' : 'lost';
 }
-
-function lineColor(state) {
-  if (state === 'won')    return GOLD;
-  if (state === 'active') return BLUE;
-  if (state === 'lost')   return DEAD;
-  return DIM;
+function lineColor(s) {
+  return s === 'won' ? GOLD : s === 'active' ? BLUE : s === 'lost' ? DEAD : DIM;
 }
 const LW = { won: 2.5, active: 2, lost: 1.5, none: 1.5 };
 
-// ─── main component ───────────────────────────────────────────────
+// ─── main component ───────────────────────────────────────────────────────────
 
 export default function CircularBracket({ resolvedR32, slotW, r16W, qfW, sfW, pairWinner }) {
-  const SIZE  = 720;
-  const CX    = SIZE / 2;
-  const CY    = SIZE / 2;
-  const BASE  = import.meta.env.BASE_URL;
+  const SIZE     = 700;
+  const CX       = SIZE / 2;
+  const CY       = SIZE / 2;
+  const BASE     = import.meta.env.BASE_URL;
 
-  const FLAG_R   = 318;  // centre of flag circles from origin
-  const FLAG_RAD = 25;   // flag circle radius (50px diameter)
-  const JR = [252, 200, 150, 103]; // junction radii: R32, R16, QF, SF
-  const WIN_RAD  = 40;   // winner circle radius
+  const FLAG_R   = 312;   // centre of flag circles from origin
+  const FR       = 26;    // flag circle radius  (52px diameter)
+  const JR       = [252, 200, 150, 103]; // R32, R16, QF, SF junction radii
+  const WIN_RAD  = 42;    // winner circle radius
 
   const finalW = sfW ? pairWinner(sfW[0], sfW[1]) : null;
 
-  function flagUrl(code) {
-    return code ? `${BASE}flags/${code}.svg` : null;
-  }
+  // ── helpers ──────────────────────────────────────────────────────────────
+  function flagPos(slot) { return xy(CX, CY, slot * 11.25, FLAG_R); }
+  function flagInner(slot) { return xy(CX, CY, slot * 11.25, FLAG_R - FR - 3); }
+  function jPos(level, k) { return xy(CX, CY, junDeg(level, k), JR[level]); }
 
-  // Build per-slot data for all 32 R32 team positions
+  // ── per-slot data ─────────────────────────────────────────────────────────
   const slots = Array.from({ length: 32 }, (_, i) => {
-    const mi    = Math.floor(i / 2);
-    const side  = i % 2 === 0 ? resolvedR32[mi].home : resolvedR32[mi].away;
-    const name  = side.team || null;
-    const code  = side.entry?.flag || null;
-    const w     = slotW[mi];
-    const won   = !!(w && name && same(name, w));
-    const lost  = !!(w && name && !same(name, w));
+    const mi   = Math.floor(i / 2);
+    const side = i % 2 === 0 ? resolvedR32[mi].home : resolvedR32[mi].away;
+    const name = side.team || null;
+    const code = side.entry?.flag || null;
+    const w    = slotW[mi];
+    const won  = !!(w && name && same(name, w));
+    const lost = !!(w && name && !same(name, w));
     return { i, mi, name, code, won, lost };
   });
 
-  // Positions
-  function flagPos(slot) { return xy(CX, CY, slot * 11.25, FLAG_R); }
-  function flagInner(slot) {
-    return xy(CX, CY, slot * 11.25, FLAG_R - FLAG_RAD - 3);
-  }
-  function jPos(level, k) { return xy(CX, CY, junDeg(level, k), JR[level]); }
+  // ── bracket lines ─────────────────────────────────────────────────────────
 
-  // ── lines: flag → R32 junction ──────────────────────────────────
+  // flag → R32 junction
   const flagLines = slots.map(({ i, mi, name, won, lost }) => {
     const [x1, y1] = flagInner(i);
     const [x2, y2] = jPos(0, mi);
-    const state = won ? 'won' : lost ? 'lost' : name ? 'active' : 'none';
+    const s = won ? 'won' : lost ? 'lost' : name ? 'active' : 'none';
     return <line key={`fl-${i}`} x1={x1} y1={y1} x2={x2} y2={y2}
-      stroke={lineColor(state)} strokeWidth={LW[state]} strokeLinecap="round" />;
+      stroke={lineColor(s)} strokeWidth={LW[s]} strokeLinecap="round" />;
   });
 
-  // ── lines: R32 junction → R16 junction ──────────────────────────
+  // R32 junction → R16 junction
   const r32Lines = Array.from({ length: 16 }, (_, k) => {
     const [x1, y1] = jPos(0, k);
-    const r16K     = Math.floor(k / 2);
+    const r16K = Math.floor(k / 2);
     const [x2, y2] = jPos(1, r16K);
-    const r32w     = slotW[k];
-    const r16w     = r16W?.[CIR_R16[r16K]];
-    const state    = edgeState(r32w, r16w);
+    const s = edgeState(slotW[k], r16W?.[CIR_R16[r16K]]);
     return <line key={`r32l-${k}`} x1={x1} y1={y1} x2={x2} y2={y2}
-      stroke={lineColor(state)} strokeWidth={LW[state]} strokeLinecap="round" />;
+      stroke={lineColor(s)} strokeWidth={LW[s]} strokeLinecap="round" />;
   });
 
-  // ── lines: R16 junction → QF junction ───────────────────────────
+  // R16 junction → QF junction
   const r16Lines = Array.from({ length: 8 }, (_, k) => {
     const [x1, y1] = jPos(1, k);
-    const qfK      = Math.floor(k / 2);
+    const qfK = Math.floor(k / 2);
     const [x2, y2] = jPos(2, qfK);
-    const r16w     = r16W?.[CIR_R16[k]];
-    const qfw      = qfW?.[qfK];
-    const state    = edgeState(r16w, qfw);
+    const s = edgeState(r16W?.[CIR_R16[k]], qfW?.[qfK]);
     return <line key={`r16l-${k}`} x1={x1} y1={y1} x2={x2} y2={y2}
-      stroke={lineColor(state)} strokeWidth={LW[state]} strokeLinecap="round" />;
+      stroke={lineColor(s)} strokeWidth={LW[s]} strokeLinecap="round" />;
   });
 
-  // ── lines: QF junction → SF junction ────────────────────────────
+  // QF junction → SF junction
   const qfLines = Array.from({ length: 4 }, (_, k) => {
     const [x1, y1] = jPos(2, k);
-    const sfK      = Math.floor(k / 2);
+    const sfK = Math.floor(k / 2);
     const [x2, y2] = jPos(3, sfK);
-    const qfw      = qfW?.[k];
-    const sfw      = sfW?.[sfK];
-    const state    = edgeState(qfw, sfw);
+    const s = edgeState(qfW?.[k], sfW?.[sfK]);
     return <line key={`qfl-${k}`} x1={x1} y1={y1} x2={x2} y2={y2}
-      stroke={lineColor(state)} strokeWidth={LW[state]} strokeLinecap="round" />;
+      stroke={lineColor(s)} strokeWidth={LW[s]} strokeLinecap="round" />;
   });
 
-  // ── lines: SF junction → centre ─────────────────────────────────
+  // SF junction → centre
   const sfLines = Array.from({ length: 2 }, (_, k) => {
     const [x1, y1] = jPos(3, k);
-    const sfw      = sfW?.[k];
-    const state    = edgeState(sfw, finalW);
+    const s = edgeState(sfW?.[k], finalW);
     return <line key={`sfl-${k}`} x1={x1} y1={y1} x2={CX} y2={CY}
-      stroke={lineColor(state)} strokeWidth={LW[state]} strokeLinecap="round" />;
+      stroke={lineColor(s)} strokeWidth={LW[s]} strokeLinecap="round" />;
   });
 
-  // ── junction dots ────────────────────────────────────────────────
-  function Dot({ pos, state, r }) {
+  // ── junction dots ─────────────────────────────────────────────────────────
+  function Dot({ pos, won, r }) {
     const [cx, cy] = pos;
-    const col = lineColor(state);
-    const glow = state === 'won' || state === 'active';
+    const col = won ? GOLD : DIM;
     return (
       <g>
-        {glow && <circle cx={cx} cy={cy} r={r + 5} fill={col} opacity="0.18" />}
-        {glow && <circle cx={cx} cy={cy} r={r + 2} fill={col} opacity="0.30" />}
+        {won && <circle cx={cx} cy={cy} r={r + 6} fill={GOLD} opacity="0.18" />}
+        {won && <circle cx={cx} cy={cy} r={r + 3} fill={GOLD} opacity="0.30" />}
         <circle cx={cx} cy={cy} r={r} fill={col} />
       </g>
     );
   }
 
   const r32Dots = Array.from({ length: 16 }, (_, k) => (
-    <Dot key={`r32d-${k}`} pos={jPos(0, k)}
-      state={slotW[k] ? 'won' : 'none'} r={4} />
+    <Dot key={`r32d-${k}`} pos={jPos(0, k)} won={!!slotW[k]} r={4} />
   ));
   const r16Dots = Array.from({ length: 8 }, (_, k) => (
-    <Dot key={`r16d-${k}`} pos={jPos(1, k)}
-      state={r16W?.[CIR_R16[k]] ? 'won' : r16W ? 'none' : 'none'} r={5} />
+    <Dot key={`r16d-${k}`} pos={jPos(1, k)} won={!!r16W?.[CIR_R16[k]]} r={5} />
   ));
   const qfDots = Array.from({ length: 4 }, (_, k) => (
-    <Dot key={`qfd-${k}`} pos={jPos(2, k)}
-      state={qfW?.[k] ? 'won' : 'none'} r={6} />
+    <Dot key={`qfd-${k}`} pos={jPos(2, k)} won={!!qfW?.[k]} r={6} />
   ));
   const sfDots = Array.from({ length: 2 }, (_, k) => (
-    <Dot key={`sfd-${k}`} pos={jPos(3, k)}
-      state={sfW?.[k] ? 'won' : 'none'} r={8} />
+    <Dot key={`sfd-${k}`} pos={jPos(3, k)} won={!!sfW?.[k]} r={8} />
   ));
 
-  // ── flag circles ─────────────────────────────────────────────────
-  const clipPaths = slots.map(({ i }) => {
-    const [fx, fy] = flagPos(i);
-    return (
-      <clipPath key={i} id={`fc-${i}`}>
-        <circle cx={fx} cy={fy} r={FLAG_RAD} />
-      </clipPath>
-    );
-  });
-
-  const flagCircles = slots.map(({ i, name, code, won, lost }) => {
-    const [fx, fy] = flagPos(i);
-    const r = FLAG_RAD;
-    const url = flagUrl(code);
-    const opacity = lost ? 0.2 : 1;
-    const ring = won ? GOLD : lost ? '#1f2937' : '#334155';
-    const ringW = won ? 3 : 2;
-
-    return (
-      <g key={`flag-${i}`} opacity={opacity}>
-        {/* Outer glow for winners */}
-        {won && <circle cx={fx} cy={fy} r={r + 12} fill={GOLD} opacity="0.12" />}
-        {won && <circle cx={fx} cy={fy} r={r + 6}  fill={GOLD} opacity="0.22" />}
-        {/* Ring */}
-        <circle cx={fx} cy={fy} r={r + ringW} fill={ring} />
-        {/* Flag fill */}
-        <circle cx={fx} cy={fy} r={r} fill="#1e293b" />
-        {url
-          ? <image href={url} x={fx - r} y={fy - r} width={r * 2} height={r * 2}
-              clipPath={`url(#fc-${i})`} preserveAspectRatio="xMidYMid slice" />
-          : <text x={fx} y={fy} textAnchor="middle" dominantBaseline="middle"
-              fontSize="10" fill="#64748b" fontFamily="system-ui">?</text>
-        }
-      </g>
-    );
-  });
-
-  // ── centre winner ─────────────────────────────────────────────────
+  // ── find winner entry for centre circle ───────────────────────────────────
   const winEntry = finalW
     ? resolvedR32.flatMap(m => [m.home, m.away]).find(s => s.team && same(s.team, finalW))
     : null;
-  const winUrl = flagUrl(winEntry?.entry?.flag);
+  const winCode = winEntry?.entry?.flag;
 
-  const centre = (
-    <g>
-      {finalW && <>
-        <circle cx={CX} cy={CY} r={WIN_RAD + 24} fill={GOLD} opacity="0.10" />
-        <circle cx={CX} cy={CY} r={WIN_RAD + 12} fill={GOLD} opacity="0.18" />
-        <circle cx={CX} cy={CY} r={WIN_RAD + 5}  fill={GOLD} />
-      </>}
-      {!finalW && <circle cx={CX} cy={CY} r={WIN_RAD + 5} fill="#1e3a5f" />}
-      <clipPath id="centre-clip">
-        <circle cx={CX} cy={CY} r={WIN_RAD} />
-      </clipPath>
-      <circle cx={CX} cy={CY} r={WIN_RAD} fill="#0f172a" />
-      {winUrl
-        ? <image href={winUrl} x={CX - WIN_RAD} y={CY - WIN_RAD}
-            width={WIN_RAD * 2} height={WIN_RAD * 2}
-            clipPath="url(#centre-clip)" preserveAspectRatio="xMidYMid slice" />
-        : <text x={CX} y={CY + 1} textAnchor="middle" dominantBaseline="middle"
-            fontSize="32" fontFamily="system-ui">🏆</text>
-      }
-    </g>
-  );
-
-  // ── title ─────────────────────────────────────────────────────────
-  const titleElem = (
-    <g>
-      <text x={CX} y={22} textAnchor="middle" fill="#475569"
-        fontSize="10" fontFamily="system-ui,sans-serif" letterSpacing="3" fontWeight="600">
-        2026 FIFA WORLD CUP
-      </text>
-      <text x={CX} y={38} textAnchor="middle" fill="#64748b"
-        fontSize="9" fontFamily="system-ui,sans-serif" letterSpacing="2">
-        KNOCKOUTS
-      </text>
-    </g>
-  );
-
+  // ── render ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', justifyContent: 'center' }}>
-      <svg width="100%" viewBox={`0 0 ${SIZE} ${SIZE}`}
-        style={{ maxWidth: SIZE, display: 'block', borderRadius: 16 }}>
+    <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+      <div style={{ position: 'relative', width: SIZE, height: SIZE, margin: '0 auto' }}>
 
-        <defs>
-          <radialGradient id="cb-bg" cx="50%" cy="50%" r="50%">
-            <stop offset="0%"   stopColor="#172035" />
-            <stop offset="70%"  stopColor="#0d1525" />
-            <stop offset="100%" stopColor="#070c18" />
-          </radialGradient>
-          {clipPaths}
-        </defs>
+        {/* ── SVG layer: background, lines, dots, title ── */}
+        <svg width={SIZE} height={SIZE} style={{ position: 'absolute', top: 0, left: 0 }}>
+          <defs>
+            <radialGradient id="cb-bg" cx="50%" cy="50%" r="50%">
+              <stop offset="0%"   stopColor="#172035" />
+              <stop offset="70%"  stopColor="#0d1525" />
+              <stop offset="100%" stopColor="#070c18" />
+            </radialGradient>
+          </defs>
 
-        <rect width={SIZE} height={SIZE} fill="url(#cb-bg)" rx="16" />
-        {titleElem}
+          <rect width={SIZE} height={SIZE} fill="url(#cb-bg)" rx="16" />
 
-        {/* Subtle guide rings */}
-        {[FLAG_R, ...JR, WIN_RAD + 5].map(r => (
-          <circle key={r} cx={CX} cy={CY} r={r}
-            fill="none" stroke="#ffffff" strokeWidth="0.3" opacity="0.06" />
-        ))}
+          {/* Subtle guide rings */}
+          {[FLAG_R, ...JR].map(r => (
+            <circle key={r} cx={CX} cy={CY} r={r}
+              fill="none" stroke="#fff" strokeWidth="0.4" opacity="0.05" />
+          ))}
 
-        {/* Lines — back to front */}
-        {sfLines}
-        {qfLines}
-        {r16Lines}
-        {r32Lines}
-        {flagLines}
+          {/* Title */}
+          <text x={CX} y={22} textAnchor="middle" fill="#475569"
+            fontSize="10" fontFamily="system-ui,sans-serif" letterSpacing="3" fontWeight="600">
+            2026 FIFA WORLD CUP
+          </text>
+          <text x={CX} y={38} textAnchor="middle" fill="#374151"
+            fontSize="9" fontFamily="system-ui,sans-serif" letterSpacing="2">
+            KNOCKOUTS
+          </text>
 
-        {/* Dots */}
-        {r32Dots}
-        {r16Dots}
-        {qfDots}
-        {sfDots}
+          {/* Lines — back to front */}
+          {sfLines}
+          {qfLines}
+          {r16Lines}
+          {r32Lines}
+          {flagLines}
 
-        {/* Flag circles & centre (on top) */}
-        {flagCircles}
-        {centre}
-      </svg>
+          {/* Dots */}
+          {r32Dots}
+          {r16Dots}
+          {qfDots}
+          {sfDots}
+
+          {/* Gold glow behind winning flag positions (rendered under HTML layer) */}
+          {slots.filter(s => s.won).map(({ i }) => {
+            const [fx, fy] = flagPos(i);
+            return (
+              <g key={`glow-${i}`}>
+                <circle cx={fx} cy={fy} r={FR + 14} fill={GOLD} opacity="0.12" />
+                <circle cx={fx} cy={fy} r={FR + 7}  fill={GOLD} opacity="0.22" />
+              </g>
+            );
+          })}
+
+          {/* Gold glow behind winner centre */}
+          {finalW && <>
+            <circle cx={CX} cy={CY} r={WIN_RAD + 22} fill={GOLD} opacity="0.09" />
+            <circle cx={CX} cy={CY} r={WIN_RAD + 12} fill={GOLD} opacity="0.17" />
+          </>}
+        </svg>
+
+        {/* ── HTML layer: flag circles ── */}
+        {slots.map(({ i, code, won, lost }) => {
+          const [fx, fy] = flagPos(i);
+          const border = won  ? `3px solid ${GOLD}`
+                       : lost ? '2px solid #1f2937'
+                       :        '2px solid #334155';
+          return (
+            <div key={`flag-${i}`} style={{
+              position: 'absolute',
+              left: fx - FR,
+              top:  fy - FR,
+              width:  FR * 2,
+              height: FR * 2,
+              borderRadius: '50%',
+              overflow: 'hidden',
+              border,
+              opacity: lost ? 0.18 : 1,
+              boxSizing: 'border-box',
+              background: '#1e293b',
+            }}>
+              {code && (
+                <img src={`${BASE}flags/${code}.svg`} alt={code}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              )}
+            </div>
+          );
+        })}
+
+        {/* ── centre winner circle ── */}
+        <div style={{
+          position: 'absolute',
+          left: CX - WIN_RAD,
+          top:  CY - WIN_RAD,
+          width:  WIN_RAD * 2,
+          height: WIN_RAD * 2,
+          borderRadius: '50%',
+          overflow: 'hidden',
+          border: `4px solid ${finalW ? GOLD : '#1e3a5f'}`,
+          boxSizing: 'border-box',
+          boxShadow: finalW ? `0 0 18px ${GOLD}, 0 0 36px ${GOLD}55` : 'none',
+          background: '#0f172a',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          {winCode
+            ? <img src={`${BASE}flags/${winCode}.svg`} alt={winCode}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+            : <span style={{ fontSize: 36 }}>🏆</span>
+          }
+        </div>
+      </div>
     </div>
   );
 }

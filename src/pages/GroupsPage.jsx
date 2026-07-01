@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { draw } from "../data/draw";
 import { GROUPS } from "../utils/monteCarlo";
 import Flag from "../components/Flag";
+import CircularBracket from "../components/CircularBracket";
 import { getCached, setCache, TTL } from "../utils/cache";
 import styles from "./GroupsPage.module.css";
 
@@ -749,6 +750,7 @@ function roundNameTier(name) {
 }
 
 function BracketTab({ knockoutEvents, historyEvents = [], qualifiers }) {
+  const [bracketView, setBracketView] = useState('list');
   const best3rdAssignment = computeBest3rdAssignment(qualifiers.allThirds, qualifiers.best8thirds);
   // Filter history events to knockout-only.
   // Hard date cutoff: group stage finals were ~02:00 UTC June 28; first R32 game was ~19:00 UTC
@@ -957,8 +959,41 @@ function BracketTab({ knockoutEvents, historyEvents = [], qualifiers }) {
 
     const futureToShow = FUTURE_ROUNDS.filter(r => r.tier > maxTier);
 
+    const viewToggle = (
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        {['list', 'wheel'].map(v => (
+          <button key={v} onClick={() => setBracketView(v)}
+            style={{
+              padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13,
+              background: bracketView === v ? '#3b82f6' : '#1e293b',
+              color: bracketView === v ? '#fff' : '#94a3b8',
+              fontWeight: bracketView === v ? '600' : '400',
+            }}>
+            {v === 'list' ? 'List view' : 'Wheel view'}
+          </button>
+        ))}
+      </div>
+    );
+
+    if (bracketView === 'wheel') {
+      return (
+        <div className={styles.bracket}>
+          {viewToggle}
+          <CircularBracket
+            resolvedR32={resolvedR32}
+            slotW={slotW}
+            r16W={r16W}
+            qfW={qfW}
+            sfW={sfW}
+            pairWinner={pairWinner}
+          />
+        </div>
+      );
+    }
+
     return (
       <div className={styles.bracket}>
+        {viewToggle}
         {Object.entries(byRound)
           .sort(([a], [b]) => roundNameTier(a) - roundNameTier(b))
           .map(([round, events]) => (

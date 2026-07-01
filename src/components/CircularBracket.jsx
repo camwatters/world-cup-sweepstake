@@ -72,8 +72,9 @@ export default function CircularBracket({ resolvedR32, slotW, r16W, qfW, sfW, pa
   const BASE     = import.meta.env.BASE_URL;
 
   const FLAG_R   = 312;   // centre of flag circles from origin
-  const FR       = 26;    // flag circle radius  (52px diameter)
+  const FR       = 20;    // flag circle radius (slightly smaller outer rings)
   const JR       = [252, 200, 150, 103]; // R32, R16, QF, SF junction radii
+  const JFR      = [10, 13, 16, 20];     // flag radius at each junction level
   const WIN_RAD  = 42;    // winner circle radius
 
   const finalW = sfW ? pairWinner(sfW[0], sfW[1]) : null;
@@ -144,30 +145,40 @@ export default function CircularBracket({ resolvedR32, slotW, r16W, qfW, sfW, pa
       stroke={lineColor(s)} strokeWidth={LW[s]} strokeLinecap="round" />;
   });
 
-  // ── junction dots ─────────────────────────────────────────────────────────
-  function Dot({ pos, won, r }) {
+  // ── junction dots — show winner's flag as trail marker ───────────────────
+  // When a winner is known, renders a small flag circle instead of a plain dot.
+  function JunctionFlag({ pos, winner, r }) {
     const [cx, cy] = pos;
-    const col = won ? GOLD : DIM;
-    return (
-      <g>
-        {won && <circle cx={cx} cy={cy} r={r + 6} fill={GOLD} opacity="0.18" />}
-        {won && <circle cx={cx} cy={cy} r={r + 3} fill={GOLD} opacity="0.30" />}
-        <circle cx={cx} cy={cy} r={r} fill={col} />
-      </g>
-    );
+    const code = flagCode(winner);
+    const url  = code ? `${BASE}flags/${code}.svg` : null;
+    if (winner && url) {
+      return (
+        <g>
+          <circle cx={cx} cy={cy} r={r + 7} fill={GOLD} opacity="0.15" />
+          <circle cx={cx} cy={cy} r={r + 3} fill={GOLD} opacity="0.28" />
+          <circle cx={cx} cy={cy} r={r + 1.5} fill={GOLD} />
+          <foreignObject x={cx - r} y={cy - r} width={r * 2} height={r * 2}>
+            <div style={{ width: '100%', height: '100%', borderRadius: '50%', overflow: 'hidden', background: '#1e293b' }}>
+              <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+            </div>
+          </foreignObject>
+        </g>
+      );
+    }
+    return <circle cx={cx} cy={cy} r={r * 0.45} fill={DIM} />;
   }
 
   const r32Dots = Array.from({ length: 16 }, (_, k) => (
-    <Dot key={`r32d-${k}`} pos={jPos(0, k)} won={!!slotW[k]} r={4} />
+    <JunctionFlag key={`r32d-${k}`} pos={jPos(0, k)} winner={slotW[k]}      r={JFR[0]} />
   ));
   const r16Dots = Array.from({ length: 8 }, (_, k) => (
-    <Dot key={`r16d-${k}`} pos={jPos(1, k)} won={!!r16W?.[CIR_R16[k]]} r={5} />
+    <JunctionFlag key={`r16d-${k}`} pos={jPos(1, k)} winner={r16W?.[CIR_R16[k]]} r={JFR[1]} />
   ));
   const qfDots = Array.from({ length: 4 }, (_, k) => (
-    <Dot key={`qfd-${k}`} pos={jPos(2, k)} won={!!qfW?.[k]} r={6} />
+    <JunctionFlag key={`qfd-${k}`} pos={jPos(2, k)} winner={qfW?.[k]}       r={JFR[2]} />
   ));
   const sfDots = Array.from({ length: 2 }, (_, k) => (
-    <Dot key={`sfd-${k}`} pos={jPos(3, k)} won={!!sfW?.[k]} r={8} />
+    <JunctionFlag key={`sfd-${k}`} pos={jPos(3, k)} winner={sfW?.[k]}       r={JFR[3]} />
   ));
 
   // ── flag circles (foreignObject so they scale with the SVG viewBox) ─────────

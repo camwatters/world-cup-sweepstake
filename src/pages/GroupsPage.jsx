@@ -750,7 +750,7 @@ function roundNameTier(name) {
 }
 
 function BracketTab({ knockoutEvents, historyEvents = [], qualifiers }) {
-  const [bracketView, setBracketView] = useState('list');
+  const [bracketView, setBracketView] = useState('wheel');
   const best3rdAssignment = computeBest3rdAssignment(qualifiers.allThirds, qualifiers.best8thirds);
   // Filter history events to knockout-only.
   // Hard date cutoff: group stage finals were ~02:00 UTC June 28; first R32 game was ~19:00 UTC
@@ -786,9 +786,23 @@ function BracketTab({ knockoutEvents, historyEvents = [], qualifiers }) {
       if (!home || !away) return;
       const homeName = home.team?.displayName ?? "";
       const awayName = away.team?.displayName ?? "";
-      const winner = (home.winner === true) ? homeName
-        : (away.winner === true) ? awayName
-        : null;
+      let winner = null;
+      if (home.winner === true) {
+        winner = homeName;
+      } else if (away.winner === true) {
+        winner = awayName;
+      } else {
+        // ESPN sometimes omits winner:true on completed knockout events.
+        // Fall back to score comparison for matches that kicked off 3+ hours ago.
+        const eventMs = Date.parse(e.date);
+        if (!isNaN(eventMs) && eventMs < Date.now() - 3 * 60 * 60 * 1000) {
+          const hs = parseInt(home.score ?? '', 10);
+          const as = parseInt(away.score ?? '', 10);
+          if (!isNaN(hs) && !isNaN(as) && hs !== as) {
+            winner = hs > as ? homeName : awayName;
+          }
+        }
+      }
       if (!winner) return;
       const key = [normalizeDisplayName(homeName), normalizeDisplayName(awayName)].sort().join("|");
       matchWinners[key] = winner;

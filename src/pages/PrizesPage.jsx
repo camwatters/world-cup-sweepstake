@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { draw } from "../data/draw";
 import Flag from "../components/Flag";
-import { runSimulations, GROUPS, GROUP_SCHEDULE } from "../utils/monteCarlo";
+import { runSimulations, GROUPS, GROUP_SCHEDULE, R32 } from "../utils/monteCarlo";
 import { getCached, setCache, TTL } from "../utils/cache";
 import { fetchCurrentOdds, getCachedOddsAge } from "../utils/oddsApi";
 import styles from "./PrizesPage.module.css";
@@ -114,6 +114,47 @@ function computeRoundWinners(knockoutResults) {
     else if (minWins === 3) sf.add(winner);
   }
   return { r32, r16, qf, sf };
+}
+
+// Resolve the real opponent for each of the 8 "Best 3rd" R32 wildcard slots directly from
+// ESPN's own fixture list, instead of guessing via the simulator's assignThirds() heuristic.
+// That heuristic (fewest-candidates-first) does not reproduce FIFA's actual 3rd-place
+// allocation table — verified against live standings it mismatches 5 of 8 wildcard slots
+// once groups are complete, which then simulates matches that never happened (e.g. pairing
+// two already-eliminated teams against each other) in every single simulation run.
+// events: raw knockout-window events, any round, completed or scheduled.
+function computeThirdPlaceOverrides(events, groupOverrides) {
+  const overrides = {};
+  R32.forEach((slots, i) => {
+    const thirdIdx = slots.findIndex(s => s.t === '3');
+    if (thirdIdx === -1) return;
+    const fixed = slots[1 - thirdIdx];
+    const grp = groupOverrides[fixed.g];
+    if (!grp?.complete) return;
+    const certainName = fixed.t === 'w' ? grp.teams[0]?.teamName : grp.teams[1]?.teamName;
+    if (!certainName) return;
+    // The earliest event featuring this team is always their R32 match — R16+ fixtures
+    // for the same team can only be published once they've already won R32.
+    let earliest = null;
+    for (const event of events) {
+      const comp = event.competitions?.[0];
+      const home = comp?.competitors?.find(c => c.homeAway === "home");
+      const away = comp?.competitors?.find(c => c.homeAway === "away");
+      if (!home || !away) continue;
+      const homeR = resolveEspnTeam(home.team?.displayName ?? "");
+      const awayR = resolveEspnTeam(away.team?.displayName ?? "");
+      if (!homeR || !awayR) continue;
+      const pairKey = [homeR.toLowerCase(), awayR.toLowerCase()].sort().join("|");
+      if (KO_GROUP_PAIRS.has(pairKey)) continue;
+      const opp = homeR === certainName ? awayR : awayR === certainName ? homeR : null;
+      if (!opp) continue;
+      const ms = Date.parse(event.date);
+      if (isNaN(ms)) continue;
+      if (!earliest || ms < earliest.ms) earliest = { ms, opp };
+    }
+    if (earliest) overrides[i] = earliest.opp;
+  });
+  return overrides;
 }
 
 function computeWorstKnockoutTeam(winners) {
@@ -386,6 +427,7 @@ export default function PrizesPage() {
     setExpanded(null);
     let groupOverrides = {};
     let knockoutResults = koResultsCache;
+    let thirdPlaceOverrides = {};
     try {
       let s = standingsRef ?? getCached(CACHE_KEY, TTL.STANDINGS);
       if (!s) {
@@ -408,12 +450,13 @@ export default function PrizesPage() {
         setWorstL16Entry(worstR32 ? { ...worstR32, confirmed: r32.size >= 16 } : null);
         setWorstQFEntry(worstR16  ? { ...worstR16,  confirmed: r16.size >= 8  } : null);
         setR32LockedCount(Object.keys(knockoutResults).length);
+        thirdPlaceOverrides = computeThirdPlaceOverrides(koEvents, groupOverrides);
       }
     } catch {}
     setTimeout(() => {
       const gottEntry = MANUAL_CURRENT.gott;
       const gottConfig = gottEntry ? { teamName: gottEntry.entry.team, quality: gottEntry.quality, perGameProb: gottEntry.perGameProb } : null;
-      const result = runSimulations(10000, groupOverrides, gottConfig, currentOdds, knockoutResults);
+      const result = runSimulations(10000, groupOverrides, gottConfig, currentOdds, knockoutResults, thirdPlaceOverrides);
       setResults(result);
       setRunning(false);
     }, 10);

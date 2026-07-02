@@ -17,7 +17,7 @@ export const GROUPS = {
 };
 
 // R32 bracket: [homeSlot, awaySlot]
-const R32 = [
+export const R32 = [
   [{ t: 'r', g: 'A' }, { t: 'r', g: 'B' }],
   [{ t: 'w', g: 'E' }, { t: '3', e: 'ABCDF' }],
   [{ t: 'w', g: 'F' }, { t: 'r', g: 'C' }],
@@ -141,7 +141,13 @@ const PRIZE_KEYS = ['winner','runnerUp','third','pott','gott','worstGroup','wors
 // oddsOverrides: { teamName: decimalOdds } — current bookmaker odds; affects only match-sim
 //   probabilities (t.p). Pre-tournament t.odds is preserved for "worst team" prize calculations.
 // knockoutResults: { "teama|teamb": "winner" } — pair-keyed confirmed knockout results (case-insensitive)
-export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null, oddsOverrides = null, knockoutResults = {}) {
+// thirdPlaceOverrides: { r32SlotIndex: teamName } — real "Best 3rd" opponents read directly from
+// ESPN's own R32 fixtures. assignThirds() below is only a heuristic guess (fewest-candidates-first)
+// and does not reproduce FIFA's actual 3rd-place allocation table, so once ESPN has published all
+// 8 wildcard slots we bypass the heuristic entirely rather than risk a wrong pairing that's then
+// wrong in every single simulation run.
+export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null, oddsOverrides = null, knockoutResults = {}, thirdPlaceOverrides = {}) {
+  const useThirdOverrides = Object.keys(thirdPlaceOverrides).length === 8;
   // Build local team list: override p (probability) only, keeping odds (pre-tournament) intact
   let localTeams = TEAMS;
   // Teams confirmed to have won at least one knockout match. Used as fallback in simRound
@@ -229,14 +235,15 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     const best8 = allThirds.slice(0, 8);
     allThirds.slice(8).forEach(t => { exit[t.team.team] = 'group'; });
 
-    const thirdsMap = assignThirds(best8);
+    const thirdsMap = useThirdOverrides ? {} : assignThirds(best8);
+    const thirdSlotTeam = i => useThirdOverrides ? (localTeamMap[thirdPlaceOverrides[i]] ?? null) : (thirdsMap[i] ?? null);
     const r32Pairs = R32.map((slots, i) => [
       slots[0].t === 'w' ? grpResult[slots[0].g][0].team
         : slots[0].t === 'r' ? grpResult[slots[0].g][1].team
-        : thirdsMap[i] ?? null,
+        : thirdSlotTeam(i),
       slots[1].t === 'w' ? grpResult[slots[1].g][0].team
         : slots[1].t === 'r' ? grpResult[slots[1].g][1].team
-        : thirdsMap[i] ?? null,
+        : thirdSlotTeam(i),
     ]);
 
     // Pair-based: looks up confirmed result by sorted "teama|teamb" key; falls back to simulation.

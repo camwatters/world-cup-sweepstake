@@ -1,48 +1,9 @@
-import { draw } from '../data/draw';
+import T from '../tournament';
+import { EXIT_ORDER, parseSlot, pairUp, assignThirds } from './bracket';
 
-// Official 2026 World Cup group draw (using draw.js team names)
-export const GROUPS = {
-  A: ['Mexico', 'Czech Republic', 'South Korea', 'South Africa'],
-  B: ['Canada', 'Bosnia and Herzegovina', 'Switzerland', 'Qatar'],
-  C: ['Brazil', 'Scotland', 'Haiti', 'Morocco'],
-  D: ['Paraguay', 'Turkey', 'Australia', 'USA'],
-  E: ['Ecuador', 'Germany', 'Ivory Coast', 'Curacao'],
-  F: ['Netherlands', 'Sweden', 'Japan', 'Tunisia'],
-  G: ['Belgium', 'Iran', 'Egypt', 'New Zealand'],
-  H: ['Spain', 'Uruguay', 'Saudi Arabia', 'Cape Verde'],
-  I: ['Norway', 'France', 'Senegal', 'Iraq'],
-  J: ['Argentina', 'Austria', 'Algeria', 'Jordan'],
-  K: ['Colombia', 'Portugal', 'Uzbekistan', 'DR Congo'],
-  L: ['England', 'Croatia', 'Panama', 'Ghana'],
-};
-
-// R32 bracket: [homeSlot, awaySlot]
-export const R32 = [
-  [{ t: 'r', g: 'A' }, { t: 'r', g: 'B' }],
-  [{ t: 'w', g: 'E' }, { t: '3', e: 'ABCDF' }],
-  [{ t: 'w', g: 'F' }, { t: 'r', g: 'C' }],
-  [{ t: 'w', g: 'C' }, { t: 'r', g: 'F' }],
-  [{ t: 'w', g: 'I' }, { t: '3', e: 'CDFGH' }],
-  [{ t: 'r', g: 'E' }, { t: 'r', g: 'I' }],
-  [{ t: 'w', g: 'A' }, { t: '3', e: 'CEFHI' }],
-  [{ t: 'w', g: 'L' }, { t: '3', e: 'EHIJK' }],
-  [{ t: 'w', g: 'D' }, { t: '3', e: 'BEFIJ' }],
-  [{ t: 'w', g: 'G' }, { t: '3', e: 'AEHIJ' }],
-  [{ t: 'r', g: 'K' }, { t: 'r', g: 'L' }],
-  [{ t: 'w', g: 'H' }, { t: 'r', g: 'J' }],
-  [{ t: 'w', g: 'B' }, { t: '3', e: 'EFGIJ' }],
-  [{ t: 'w', g: 'J' }, { t: 'r', g: 'H' }],
-  [{ t: 'w', g: 'K' }, { t: '3', e: 'DEIJL' }],
-  [{ t: 'r', g: 'D' }, { t: 'r', g: 'G' }],
-];
-
-const R16 = [[1,4],[0,2],[3,5],[6,7],[10,11],[8,9],[13,15],[12,14]];
-const QF  = [[0,1],[4,5],[2,3],[6,7]];
-const SF  = [[0,1],[2,3]];
-
-const rawProbs = draw.map(e => 1 / e.odds);
+const rawProbs = T.draw.map(e => 1 / e.odds);
 const probSum  = rawProbs.reduce((a, b) => a + b, 0);
-const TEAMS    = draw.map((e, i) => ({ ...e, p: rawProbs[i] / probSum }));
+const TEAMS    = T.draw.map((e, i) => ({ ...e, p: rawProbs[i] / probSum }));
 const teamMap  = Object.fromEntries(TEAMS.map(t => [t.team, t]));
 
 // Knuth Poisson sampler
@@ -95,37 +56,17 @@ function simPartialGroup(names, overrideTeams, matchdaysPlayed, gottPairs, tm, e
   return idx.map(i => ({ team: teams[i], pts: pts[i], gd: gd[i], gf: gf[i] }));
 }
 
-function assignThirds(best8) {
-  const slots = [];
-  R32.forEach((m, i) => m.forEach((slot) => { if (slot.t === '3') slots.push({ i, e: slot.e }); }));
-  const remaining = [...best8];
-  slots.sort((a, b) => {
-    return remaining.filter(t => a.e.includes(t.group)).length
-         - remaining.filter(t => b.e.includes(t.group)).length;
-  });
-  const assigned = {};
-  for (const slot of slots) {
-    const cands = remaining.filter(t => slot.e.includes(t.group));
-    const pick = cands.length > 0 ? cands[0] : remaining[0];
-    if (pick) { assigned[slot.i] = pick.team; remaining.splice(remaining.indexOf(pick), 1); }
-  }
-  return assigned;
-}
-
-const PRIZE_KEYS = ['winner','runnerUp','third','pott','gott','worstGroup','worstL16','worstQF','worstOverall'];
-
 // groupOverrides: { letter: { teams:[{teamName,pts,gd,gf}], complete:bool, matchdaysPlayed:int } }
-// gottConfig: { teamName, quality, perGameProb } — current GOTT holder
 // oddsOverrides: { teamName: decimalOdds } — current bookmaker odds; affects only match-sim
 //   probabilities (t.p). Pre-tournament t.odds is preserved for "worst team" prize calculations.
 // knockoutResults: { "teama|teamb": "winner" } — pair-keyed confirmed knockout results (case-insensitive)
-// thirdPlaceOverrides: { r32SlotIndex: teamName } — real "Best 3rd" opponents read directly from
-// ESPN's own R32 fixtures. assignThirds() below is only a heuristic guess (fewest-candidates-first)
-// and does not reproduce FIFA's actual 3rd-place allocation table, so once ESPN has published all
-// 8 wildcard slots we bypass the heuristic entirely rather than risk a wrong pairing that's then
-// wrong in every single simulation run.
-export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null, oddsOverrides = null, knockoutResults = {}, thirdPlaceOverrides = {}) {
-  const useThirdOverrides = Object.keys(thirdPlaceOverrides).length === 8;
+// thirdPlaceOverrides: { bracketMatchIndex: teamName } — real "Best 3rd" opponents read directly
+// from ESPN's own first-round fixtures. Without an official allocation table assignThirds() can
+// only guess, so once ESPN has published every wildcard slot we bypass it entirely rather than
+// risk a wrong pairing that's then wrong in every single simulation run.
+export function runSimulations(n = 10000, groupOverrides = {}, oddsOverrides = null, knockoutResults = {}, thirdPlaceOverrides = {}) {
+  const useThirdOverrides = Object.keys(thirdPlaceOverrides).length === T.bestThirds;
+  const gottConfig = T.gott;
   // Build local team list: override p (probability) only, keeping odds (pre-tournament) intact
   let localTeams = TEAMS;
   // Per-team count of confirmed knockout wins (keyed lower-case). A team with >N wins has
@@ -152,7 +93,7 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
   }
   let localTeamMap = teamMap;
   if (oddsOverrides && Object.keys(oddsOverrides).length > 0) {
-    const rawP = draw.map(e => 1 / (oddsOverrides[e.team] ?? e.odds));
+    const rawP = T.draw.map(e => 1 / (oddsOverrides[e.team] ?? e.odds));
     const sum = rawP.reduce((a, b) => a + b, 0);
     localTeams = TEAMS.map((e, i) => ({ ...e, p: rawP[i] / sum }));
     localTeamMap = Object.fromEntries(localTeams.map(t => [t.team, t]));
@@ -165,7 +106,7 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
   const people = [...new Set(localTeams.map(t => t.person).filter(Boolean))];
   people.forEach(p => {
     personTotal[p] = 0;
-    personBreakdown[p] = Object.fromEntries(PRIZE_KEYS.map(k => [k, 0]));
+    personBreakdown[p] = Object.fromEntries(T.prizes.map(prize => [prize.key, 0]));
     personBreakdownTeam[p] = {};
   });
   localTeams.forEach(t => { teamTotal[t.team] = 0; });
@@ -186,7 +127,7 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     const allThirds = [];
     const gottPairs = [];
 
-    for (const [letter, names] of Object.entries(GROUPS)) {
+    for (const [letter, names] of Object.entries(T.groups)) {
       let sorted;
       const ov = groupOverrides[letter];
       if (ov?.complete) {
@@ -205,19 +146,14 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     }
 
     allThirds.sort((a,b) => b.pts-a.pts || b.gd-a.gd || b.gf-a.gf || a.team.p-b.team.p);
-    const best8 = allThirds.slice(0, 8);
-    allThirds.slice(8).forEach(t => { exit[t.team.team] = 'group'; });
+    allThirds.slice(T.bestThirds).forEach(t => { exit[t.team.team] = 'group'; });
 
-    const thirdsMap = useThirdOverrides ? {} : assignThirds(best8);
-    const thirdSlotTeam = i => useThirdOverrides ? (localTeamMap[thirdPlaceOverrides[i]] ?? null) : (thirdsMap[i] ?? null);
-    const r32Pairs = R32.map((slots, i) => [
-      slots[0].t === 'w' ? grpResult[slots[0].g][0].team
-        : slots[0].t === 'r' ? grpResult[slots[0].g][1].team
-        : thirdSlotTeam(i),
-      slots[1].t === 'w' ? grpResult[slots[1].g][0].team
-        : slots[1].t === 'r' ? grpResult[slots[1].g][1].team
-        : thirdSlotTeam(i),
-    ]);
+    const thirdsMap = useThirdOverrides ? {} : assignThirds(allThirds.slice(0, T.bestThirds));
+    const slotTeam = (code, i) => {
+      const { pos, groups } = parseSlot(code);
+      if (pos !== 3) return grpResult[groups][pos - 1].team;
+      return useThirdOverrides ? (localTeamMap[thirdPlaceOverrides[i]] ?? null) : (thirdsMap[i] ?? null);
+    };
 
     // Each returns [winner, loser]. Confirmed result by sorted "teama|teamb" key, if known.
     const confirmedResult = (a, b) => {
@@ -227,7 +163,7 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     };
     // Win-count fallback: assignThirds() may pair a confirmed team with a different opponent than
     // the real bracket, so the exact key misses. For each round we know how many prior knockout
-    // wins a team must already have to reach it (r32:0, r16:1, qf:2). If one team has more
+    // wins a team must already have to reach it (its round index). If one team has more
     // confirmed wins than that and the other does not, the confirmed team advances. Likewise a
     // confirmed loser facing a team that isn't one is eliminated.
     const forcedResult = (a, b, prior) => {
@@ -245,69 +181,55 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
       return [w, w === a ? b : a];
     };
 
-    function simRound(pairs, round) {
-      const prior = { r32: 0, r16: 1, qf: 2 }[round];
-      return pairs.map(([a, b]) => {
-        if (!a) return b; if (!b) return a;
-        const [w, l] = confirmedResult(a, b) ?? forcedResult(a, b, prior) ?? simulated(a, b);
-        exit[l.team] = round;
-        return w;
-      });
-    }
-
-    const r32W = simRound(r32Pairs, 'r32');
-    const r16W = simRound(R16.map(([a,b]) => [r32W[a], r32W[b]]), 'r16');
-    const qfW  = simRound(QF.map(([a,b]) => [r16W[a], r16W[b]]), 'qf');
-    const sfW = [], sfL = [];
-    SF.forEach(([a,b]) => {
-      const ta = qfW[a], tb = qfW[b];
-      if (!ta||!tb) { sfW.push(ta??tb); return; }
-      const [w, l] = confirmedResult(ta, tb) ?? simulated(ta, tb);
-      exit[l.team] = 'sf'; sfW.push(w); sfL.push(l);
+    // Play every round but the final; each round's winners pair up for the next.
+    let pairs = T.bracket.map((m, i) => [slotTeam(m.home, i), slotTeam(m.away, i)]);
+    let losers = [];
+    T.rounds.slice(0, -1).forEach((round, prior) => {
+      const results = pairs.map(([a, b]) => !a || !b ? [a ?? b, null]
+        : confirmedResult(a, b) ?? forcedResult(a, b, prior) ?? simulated(a, b));
+      results.forEach(([, l]) => { if (l) exit[l.team] = round.slug; });
+      losers = results.map(([, l]) => l);
+      pairs = pairUp(results.map(([w]) => w));
     });
-    if (sfL.length===2) {
-      const [w, l] = confirmedResult(sfL[0], sfL[1]) ?? simulated(sfL[0], sfL[1]);
+    if (T.thirdPlaceMatch && losers[0] && losers[1]) {
+      const [w, l] = confirmedResult(losers[0], losers[1]) ?? simulated(losers[0], losers[1]);
       exit[w.team] = '3rd'; exit[l.team] = '4th';
     }
-    if (sfW[0]&&sfW[1]) {
-      const [w, l] = confirmedResult(sfW[0], sfW[1]) ?? simulated(sfW[0], sfW[1]);
-      exit[w.team] = 'winner'; exit[l.team] = 'final';
+    const [fa, fb] = pairs[0];
+    if (fa && fb) {
+      const [w, l] = confirmedResult(fa, fb) ?? simulated(fa, fb);
+      exit[w.team] = 'winner'; exit[l.team] = 'runnerUp';
     }
 
-    const add = (team, key, amt) => {
+    const add = (team, { key, amount }) => {
       if (team?.person) {
-        personTotal[team.person] += amt;
-        personBreakdown[team.person][key] += amt;
-        teamTotal[team.team] += amt;
+        personTotal[team.person] += amount;
+        personBreakdown[team.person][key] += amount;
+        teamTotal[team.team] += amount;
         const pt = personBreakdownTeam[team.person];
         if (!pt[key]) pt[key] = {};
-        pt[key][team.team] = (pt[key][team.team] ?? 0) + amt;
+        pt[key][team.team] = (pt[key][team.team] ?? 0) + amount;
       }
     };
-    const EXIT_ORDER = ['group','r32','r16','qf','sf','4th','3rd','final','winner'];
-    const exitRank = r => EXIT_ORDER.indexOf(r ?? 'group');
+    const exitRank = t => EXIT_ORDER.indexOf(exit[t.team] ?? 'group');
     const byExit = r => localTeams.filter(t => exit[t.team]===r);
-    const reachedOrBeyond = stage => localTeams.filter(t => exitRank(exit[t.team]) > exitRank(stage));
+    const reached = round => localTeams.filter(t => exitRank(t) >= EXIT_ORDER.indexOf(round));
     // worst() uses t.odds (pre-tournament) — intentional, current odds not used here
     const worst = ts => ts.length ? ts.reduce((a,b) => b.odds>a.odds ? b : b.odds===a.odds && Math.random()<0.5 ? b : a) : null;
 
-    add(byExit('winner')[0], 'winner', 200);
-    add(byExit('final')[0],  'runnerUp', 80);
-    add(byExit('3rd')[0],    'third', 40);
-
-    const last4 = [...byExit('sf'),...byExit('4th'),...byExit('final'),...byExit('winner'),...byExit('3rd')];
-    if (last4.length) {
-      const tot = last4.reduce((s,t) => s+t.p, 0);
-      let r = Math.random()*tot;
-      let pottWinner = last4[last4.length-1];
-      for (const t of last4) { r-=t.p; if (r<=0) { pottWinner=t; break; } }
-      add(pottWinner,'pott',40);
-    }
+    // Player of the Tournament: a semi-finalist, weighted by strength
+    const pott = () => {
+      const last4 = reached(T.rounds.at(-2).slug);
+      if (!last4.length) return null;
+      let r = Math.random() * last4.reduce((s,t) => s+t.p, 0);
+      for (const t of last4) { r-=t.p; if (r<=0) return t; }
+      return last4[last4.length-1];
+    };
 
     // GOTT: sample one goal quality per game; best across all games wins
-    {
+    const gott = () => {
       let gottBest = gottConfig?.quality ?? -1;
-      let gottWinner = gottConfig ? (localTeamMap[gottConfig.teamName] ?? null) : null;
+      let gottWinner = gottConfig ? (localTeamMap[gottConfig.team] ?? null) : null;
       for (const [a, b] of gottPairs) {
         const q = gottSample();
         if (q > gottBest) {
@@ -315,13 +237,10 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
           gottWinner = Math.random() < 0.5 ? a : b;
         }
       }
-      if (gottWinner) add(gottWinner, 'gott', 40);
-    }
-    add(worst(reachedOrBeyond('group')), 'worstGroup', 20);
-    add(worst(reachedOrBeyond('r32')),  'worstL16', 20);
-    add(worst(reachedOrBeyond('r16')),  'worstQF', 20);
+      return gottWinner;
+    };
 
-    const worstOverall = localTeams.reduce((best,t) => {
+    const worstOverall = () => localTeams.reduce((best,t) => {
       const s=groupRank[t.team]; if(!s) return best;
       const sb=groupRank[best?.team]; if(!sb) return t;
       if(s.pts!==sb.pts) return s.pts<sb.pts?t:best;
@@ -329,7 +248,19 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
       if(s.gf!==sb.gf) return s.gf<sb.gf?t:best;
       return Math.random()<0.5?t:best; // random tiebreak if genuinely equal
     }, null);
-    add(worstOverall, 'worstOverall', 20);
+
+    for (const prize of T.prizes) {
+      const team = {
+        winner:       () => byExit('winner')[0],
+        runnerUp:     () => byExit('runnerUp')[0],
+        third:        () => byExit('3rd')[0],
+        pott,
+        gott,
+        worstOverall,
+        worstReached: () => worst(reached(prize.round)),
+      }[prize.type]();
+      add(team, prize);
+    }
   }
 
   return {

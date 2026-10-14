@@ -1,49 +1,13 @@
 import { useState, useEffect } from "react";
-import { draw } from "../data/draw";
+import T from "../tournament";
 import Flag from "../components/Flag";
-import { runSimulations, GROUPS, GROUP_SCHEDULE, R32 } from "../utils/monteCarlo";
-import { getCached, setCache, TTL } from "../utils/cache";
-import { findEntry, getStats, standingsGroups, homeAway, roundOf, isKnockout, fetchTournamentEvents, ESPN_STANDINGS } from "../utils/espn";
+import { runSimulations, GROUP_SCHEDULE } from "../utils/monteCarlo";
+import { GROUP_COUNT, parseSlot } from "../utils/bracket";
+import { findEntry, getStats, standingsGroups, homeAway, roundOf, isKnockout, fetchTournamentEvents, fetchStandings } from "../utils/espn";
 import { fetchCurrentOdds, getCachedOddsAge } from "../utils/oddsApi";
 import styles from "./PrizesPage.module.css";
 
-const PRIZES = [
-  { name: "Winner",                              amount: 200, top: true },
-  { name: "Runner-up",                           amount: 80,  top: true },
-  { name: "Third Place",                         amount: 40,  top: true },
-  { name: "Player of the Tournament",            amount: 40  },
-  { name: "Goal of the Tournament",              amount: 40,  currentKey: "gott" },
-  { name: "Worst Team Overall",                  amount: 20,  currentKey: "worstOverall" },
-  { name: "Worst Team to exit Group Stage",      amount: 20,  currentKey: "worstGroup" },
-  { name: "Worst Team to reach Last 16",         amount: 20,  currentKey: "worstL16" },
-  { name: "Worst Team to reach Quarter-Finals",  amount: 20,  currentKey: "worstQF" },
-];
-
-const PRIZE_LABELS = {
-  winner:      'Tournament winner',
-  runnerUp:    'Runner-up',
-  third:       'Third place',
-  pott:        'Player of Tournament',
-  gott:        'Goal of Tournament',
-  worstGroup:  'Worst to exit groups',
-  worstL16:    'Worst to reach L16',
-  worstQF:     'Worst to reach QFs',
-  worstOverall:'Worst team overall',
-};
-
-const TOTAL = PRIZES.reduce((s, p) => s + p.amount, 0);
-
-const CACHE_KEY = "espn_standings";
-
-async function fetchStandings() {
-  const cached = getCached(CACHE_KEY, TTL.STANDINGS);
-  if (cached) return cached;
-  const res = await fetch(ESPN_STANDINGS);
-  if (!res.ok) return null;
-  const s = await res.json();
-  setCache(CACHE_KEY, s);
-  return s;
-}
+const TOTAL = T.prizes.reduce((s, p) => s + p.amount, 0);
 
 const pairKey = (a, b) => [a.toLowerCase(), b.toLowerCase()].sort().join("|");
 
@@ -77,25 +41,29 @@ function roundWinners(events, round) {
   return events.filter(e => roundOf(e) === round).map(parseResult).filter(Boolean).map(r => r.winner);
 }
 
-// Resolve the real opponent for each of the 8 "Best 3rd" R32 wildcard slots directly from
+// Resolve the real opponent for each "Best 3rd" wildcard slot of the first round directly from
 // ESPN's own fixture list, instead of guessing via the simulator's assignThirds() heuristic.
 // That heuristic (fewest-candidates-first) does not reproduce FIFA's actual 3rd-place
 // allocation table — verified against live standings it mismatches 5 of 8 wildcard slots
 // once groups are complete, which then simulates matches that never happened (e.g. pairing
 // two already-eliminated teams against each other) in every single simulation run.
-function computeThirdPlaceOverrides(events, groupOverrides) {
-  const r32Teams = events
-    .filter(e => roundOf(e) === "round-of-32")
+// [home, away] draw names for each first-round knockout fixture ESPN has published
+function firstRoundFixtures(events) {
+  return events
+    .filter(e => roundOf(e) === T.rounds[0].slug)
     .map(e => homeAway(e).map(c => findEntry(c?.team?.displayName)?.team));
+}
+
+function computeThirdPlaceOverrides(events, groupOverrides) {
+  const firstRoundTeams = firstRoundFixtures(events);
   const overrides = {};
-  R32.forEach((slots, i) => {
-    const thirdIdx = slots.findIndex(s => s.t === '3');
-    if (thirdIdx === -1) return;
-    const fixed = slots[1 - thirdIdx];
-    const grp = groupOverrides[fixed.g];
+  T.bracket.forEach(({ home, away }, i) => {
+    if (home[0] !== "3" && away[0] !== "3") return;
+    const fixed = parseSlot(home[0] === "3" ? away : home);
+    const grp = groupOverrides[fixed.groups];
     if (!grp?.complete) return;
-    const certainName = (fixed.t === 'w' ? grp.teams[0] : grp.teams[1])?.teamName;
-    const match = certainName && r32Teams.find(pair => pair.includes(certainName));
+    const certainName = grp.teams[fixed.pos - 1]?.teamName;
+    const match = certainName && firstRoundTeams.find(pair => pair.includes(certainName));
     const opp = match?.find(t => t !== certainName);
     if (opp) overrides[i] = opp;
   });
@@ -165,7 +133,7 @@ function isGroupStageComplete(standings) {
     const maxPlayed = Math.max(...entries.map(e => getStats(e).gamesPlayed ?? 0));
     if (maxPlayed >= 3) done++;
   }
-  return done >= 12;
+  return done >= GROUP_COUNT;
 }
 
 // Uses GROUP_SCHEDULE + current standings to infer which teams are H2H-locked out of top 2.
@@ -173,7 +141,7 @@ function isGroupStageComplete(standings) {
 // A team is eliminated if 2+ opponents both (a) beat them on H2H and (b) already have
 // points >= the team's theoretical maximum.
 function computeEliminatedTeams(overrideTeams, letter, matchdaysPlayed) {
-  const groupNames = GROUPS[letter];
+  const groupNames = T.groups[letter];
   if (!groupNames || matchdaysPlayed === 0) return new Set();
 
   const teamByName = Object.fromEntries(overrideTeams.map(t => [t.teamName, t]));
@@ -244,41 +212,45 @@ function buildGroupOverrides(standings) {
 }
 
 const byPerson = {};
-[...draw].sort((a, b) => a.odds - b.odds).forEach(e => {
+[...T.draw].sort((a, b) => a.odds - b.odds).forEach(e => {
   const k = e.person ?? "Unclaimed";
   if (!byPerson[k]) byPerson[k] = [];
   byPerson[k].push(e);
 });
 
-// Hardcoded current holders (manually updated)
-const MANUAL_CURRENT = {
-  gott: { entry: draw.find(t => t.team === "Cape Verde"), quality: 0.9, perGameProb: 0.03 },
-};
-if (!MANUAL_CURRENT.gott.entry) console.warn("MANUAL_CURRENT.gott: team not found in draw");
+if (T.gott && !findEntry(T.gott.team)) console.warn(`gott: "${T.gott.team}" not found in draw`);
 
-// Loads standings + knockout results: the simulation inputs plus the current prize holders.
+const holder = (entry, confirmed) => entry ? { ...entry, confirmed } : null;
+
+// Loads standings + knockout results: the simulation inputs plus the current prize holders,
+// keyed by prize key.
 async function loadLiveData() {
   const live = { groupOverrides: {}, knockoutResults: {}, thirdPlaceOverrides: {}, holders: {} };
+  const set = (type, fn) => T.prizes.filter(p => p.type === type).forEach(p => { live.holders[p.key] = fn(p); });
+  if (T.gott) set("gott", () => findEntry(T.gott.team));
   try {
     const s = await fetchStandings();
-    if (s) {
-      const groupsComplete = isGroupStageComplete(s);
-      const worstTeam = computeWorstTeam(s);
-      const worstQualified = worstByOdds(computeGuaranteedQualifiers(s));
-      live.holders.worstOverall = worstTeam      ? { ...worstTeam,      confirmed: groupsComplete } : null;
-      live.holders.worstGroup   = worstQualified ? { ...worstQualified, confirmed: groupsComplete } : null;
-      live.groupOverrides = buildGroupOverrides(s);
-    }
+    const groupsComplete = isGroupStageComplete(s);
+    set("worstOverall", () => holder(computeWorstTeam(s), groupsComplete));
+    // Reaching the first knockout round: provisionally the worst team certain of a top-two finish
+    const qualified = worstByOdds(computeGuaranteedQualifiers(s));
+    set("worstReached", p => p.round === T.rounds[0].slug ? holder(qualified, groupsComplete) : live.holders[p.key]);
+    live.groupOverrides = buildGroupOverrides(s);
   } catch { /* standings unavailable — simulate all groups */ }
   try {
     const events = await fetchTournamentEvents();
     live.knockoutResults = buildKnockoutResults(events);
-    const r32 = roundWinners(events, "round-of-32");
-    const r16 = roundWinners(events, "round-of-16");
-    const worstR32 = worstByOdds(r32);
-    const worstR16 = worstByOdds(r16);
-    live.holders.worstL16 = worstR32 ? { ...worstR32, confirmed: r32.length >= 16 } : null;
-    live.holders.worstQF  = worstR16 ? { ...worstR16, confirmed: r16.length >= 8  } : null;
+    set("worstReached", p => {
+      const i = T.rounds.findIndex(r => r.slug === p.round);
+      if (i === 0) {
+        // Once every first-round fixture is published, its teams (incl. best thirds) are exact
+        const teams = firstRoundFixtures(events).flat().filter(Boolean);
+        return teams.length === 2 * T.bracket.length ? holder(worstByOdds(teams), true) : live.holders[p.key];
+      }
+      // Reaching a later round = won the round before it
+      const winners = roundWinners(events, T.rounds[i - 1].slug);
+      return holder(worstByOdds(winners), winners.length === T.bracket.length >> (i - 1));
+    });
     live.thirdPlaceOverrides = computeThirdPlaceOverrides(events, live.groupOverrides);
   } catch { /* scoreboard unavailable — simulate all knockouts */ }
   return live;
@@ -300,7 +272,7 @@ export default function PrizesPage() {
     }).catch(() => {});
   }, []);
 
-  const currently = { gott: MANUAL_CURRENT.gott.entry, ...live?.holders };
+  const currently = live?.holders ?? {};
   const lockedCount = live ? Object.keys(live.groupOverrides).length : 0;
   const r32LockedCount = live ? Object.keys(live.knockoutResults).length : 0;
 
@@ -310,10 +282,8 @@ export default function PrizesPage() {
     const fresh = await loadLiveData();
     setLive(fresh);
     setTimeout(() => {
-      const gottEntry = MANUAL_CURRENT.gott;
-      const gottConfig = gottEntry ? { teamName: gottEntry.entry?.team, quality: gottEntry.quality, perGameProb: gottEntry.perGameProb } : null;
       try {
-        setResults(runSimulations(10000, fresh.groupOverrides, gottConfig, currentOdds, fresh.knockoutResults, fresh.thirdPlaceOverrides));
+        setResults(runSimulations(10000, fresh.groupOverrides, currentOdds, fresh.knockoutResults, fresh.thirdPlaceOverrides));
       } finally {
         setRunning(false);
       }
@@ -332,8 +302,8 @@ export default function PrizesPage() {
     <div className={styles.page}>
       <h1 className={styles.title}>Prize Money</h1>
       <div className={styles.list}>
-        {PRIZES.map((p, i) => {
-          const curr = p.currentKey ? currently[p.currentKey] : null;
+        {T.prizes.map((p, i) => {
+          const curr = currently[p.key];
           return (
             <div key={p.name} className={`${styles.row} ${p.top ? styles.top : ""}`}>
               {p.top && <div className={styles.medal}>{i===0?"🥇":i===1?"🥈":"🥉"}</div>}
@@ -379,7 +349,7 @@ export default function PrizesPage() {
           <>
             {lockedCount > 0 && (
               <div className={styles.evMeta}>
-                <span className={styles.evLocked}>Live standings used for {lockedCount}/12 groups</span>
+                <span className={styles.evLocked}>Live standings used for {lockedCount}/{GROUP_COUNT} groups</span>
               </div>
             )}
             {r32LockedCount > 0 && (
@@ -423,7 +393,7 @@ export default function PrizesPage() {
                     </div>
                     {isOpen && (
                       <div className={styles.evBreakdown}>
-                        {Object.entries(PRIZE_LABELS).map(([key, label]) => {
+                        {T.prizes.map(({ key, short: label }) => {
                           const val = breakdown[key] ?? 0;
                           if (val < 0.01) return null;
                           const teamSplit = results.personBreakdownTeam?.[name]?.[key];

@@ -3,14 +3,11 @@
 // foreignObject scales with the SVG viewBox so flags are correct on all screen sizes.
 // touch-action on the wrapper enables native mobile pinch-to-zoom/pan.
 //
-// Bracket connectivity — sequential slot order maps exactly:
-//   R16 circular pair k  →  r16W[ CIR_R16[k] ]
-//   QF  circular pair k  →  qfW[k]
-//   SF  circular pair k  →  sfW[k]
+// Bracket order is sequential: first-round match k holds flag slots 2k and 2k+1, and
+// junction k at level l joins junctions 2k and 2k+1 of level l-1, down to the centre.
 
 import { findEntry } from '../utils/espn';
-
-const CIR_R16 = [0, 1, 4, 5, 2, 3, 6, 7];
+import T from '../tournament';
 
 const flagUrl = name => {
   const code = findEntry(name)?.flag;
@@ -31,11 +28,14 @@ function same(a, b) {
   return !!(a && b && a.toLowerCase() === b.toLowerCase());
 }
 
-// Angle of a bracket sub-tree midpoint at given level and index.
-function junDeg(level, k) {
+// Angle of a bracket sub-tree midpoint at given level and index, for n flag slots.
+function junDeg(level, k, n) {
   const tpj = Math.pow(2, level + 1);
-  return (k * tpj + (tpj - 1) / 2) * (360 / 32);
+  return (k * tpj + (tpj - 1) / 2) * (360 / n);
 }
+
+// Evenly spaced values from a (level 0) to b (last level)
+const spread = (a, b, levels) => Array.from({ length: levels }, (_, l) => a + (b - a) * l / Math.max(levels - 1, 1));
 
 // Gold if the team at this node is still in the tournament (won or yet to play next).
 // Dead if they were eliminated. Dim if we don't know the team yet.
@@ -74,62 +74,49 @@ function junctionFlag(key, [cx, cy], winner, r) {
 
 // ─── main component ───────────────────────────────────────────────────────────
 
-export default function CircularBracket({ resolvedR32, slotW, r16W, qfW, sfW, pairWinner }) {
+// firstRound: [{ home: { team, label }, away }] in bracket order.
+// winners[l][k]: winner of match k in round l (null if unplayed), ending with [champion].
+export default function CircularBracket({ firstRound, winners }) {
   const SIZE     = 700;
   const CX       = SIZE / 2;
   const CY       = SIZE / 2;
 
+  const N        = firstRound.length * 2;   // flag slots
+  const LEVELS   = winners.length - 1;      // junction rings (the last round meets at the centre)
   const FLAG_R   = 312;   // centre of flag circles from origin
-  const FR       = 20;    // flag circle radius (slightly smaller outer rings)
-  const JR       = [252, 200, 150, 103]; // R32, R16, QF, SF junction radii
-  const JFR      = [10, 13, 16, 20];     // flag radius at each junction level
+  const FR       = Math.min(28, 0.65 * FLAG_R * Math.sin(Math.PI / N)); // flag circle radius
+  const JR       = spread(252, 103, LEVELS); // junction radius per level
+  const JFR      = spread(10, 20, LEVELS);   // flag radius at each junction level
   const WIN_RAD  = 42;    // winner circle radius
 
-  const finalW = sfW ? pairWinner(sfW[0], sfW[1]) : null;
+  const finalW = winners[LEVELS][0];
 
   // ── helpers ──────────────────────────────────────────────────────────────
-  function flagPos(slot) { return xy(CX, CY, slot * 11.25, FLAG_R); }
-  function flagInner(slot) { return xy(CX, CY, slot * 11.25, FLAG_R - FR - 3); }
-  function jPos(level, k) { return xy(CX, CY, junDeg(level, k), JR[level]); }
+  function flagPos(slot) { return xy(CX, CY, slot * 360 / N, FLAG_R); }
+  function flagInner(slot) { return xy(CX, CY, slot * 360 / N, FLAG_R - FR - 3); }
+  function jPos(level, k) { return xy(CX, CY, junDeg(level, k, N), JR[level]); }
 
   // ── per-slot data ─────────────────────────────────────────────────────────
-  const slots = Array.from({ length: 32 }, (_, i) => {
+  const slots = Array.from({ length: N }, (_, i) => {
     const mi   = Math.floor(i / 2);
-    const side = i % 2 === 0 ? resolvedR32[mi].home : resolvedR32[mi].away;
+    const side = i % 2 === 0 ? firstRound[mi].home : firstRound[mi].away;
     const name = side.team || null;
-    const w    = slotW[mi];
+    const w    = winners[0][mi];
     const won  = !!(w && name && same(name, w));
     const lost = !!(w && name && !same(name, w));
     return { i, mi, name, url: flagUrl(name), won, lost };
   });
 
-  // ── bracket lines ─────────────────────────────────────────────────────────
-
-  // flag → R32 junction
+  // ── bracket lines (drawn centre-outwards so outer lines sit on top) ─────────
   const flagLines = slots.map(({ i, mi, name, lost }) =>
     edge(`fl-${i}`, flagInner(i), jPos(0, mi), lost ? 'lost' : name ? 'won' : 'none'));
-
-  // R32 junction → R16 junction
-  const r32Lines = Array.from({ length: 16 }, (_, k) =>
-    edge(`r32l-${k}`, jPos(0, k), jPos(1, k >> 1), edgeState(slotW[k], r16W?.[CIR_R16[k >> 1]])));
-
-  // R16 junction → QF junction
-  const r16Lines = Array.from({ length: 8 }, (_, k) =>
-    edge(`r16l-${k}`, jPos(1, k), jPos(2, k >> 1), edgeState(r16W?.[CIR_R16[k]], qfW?.[k >> 1])));
-
-  // QF junction → SF junction
-  const qfLines = Array.from({ length: 4 }, (_, k) =>
-    edge(`qfl-${k}`, jPos(2, k), jPos(3, k >> 1), edgeState(qfW?.[k], sfW?.[k >> 1])));
-
-  // SF junction → centre
-  const sfLines = Array.from({ length: 2 }, (_, k) =>
-    edge(`sfl-${k}`, jPos(3, k), [CX, CY], edgeState(sfW?.[k], finalW)));
+  const junctionLines = Array.from({ length: LEVELS }, (_, l) => winners[l].map((w, k) =>
+    edge(`jl-${l}-${k}`, jPos(l, k), l + 1 < LEVELS ? jPos(l + 1, k >> 1) : [CX, CY], edgeState(w, winners[l + 1][k >> 1])),
+  )).reverse();
 
   // ── junction dots ─────────────────────────────────────────────────────────
-  const r32Dots = Array.from({ length: 16 }, (_, k) => junctionFlag(`r32d-${k}`, jPos(0, k), slotW[k], JFR[0]));
-  const r16Dots = Array.from({ length: 8 },  (_, k) => junctionFlag(`r16d-${k}`, jPos(1, k), r16W?.[CIR_R16[k]], JFR[1]));
-  const qfDots  = Array.from({ length: 4 },  (_, k) => junctionFlag(`qfd-${k}`,  jPos(2, k), qfW?.[k], JFR[2]));
-  const sfDots  = Array.from({ length: 2 },  (_, k) => junctionFlag(`sfd-${k}`,  jPos(3, k), sfW?.[k], JFR[3]));
+  const junctionDots = Array.from({ length: LEVELS }, (_, l) =>
+    winners[l].map((w, k) => junctionFlag(`jd-${l}-${k}`, jPos(l, k), w, JFR[l])));
 
   // ── flag circles (foreignObject so they scale with the SVG viewBox) ─────────
   const flagCircles = slots.map(({ i, url, won, lost }) => {
@@ -188,7 +175,7 @@ export default function CircularBracket({ resolvedR32, slotW, r16W, qfW, sfW, pa
       {/* Title */}
       <div style={{ textAlign: 'center', marginBottom: 8 }}>
         <div style={{ color: '#64748b', fontSize: 11, letterSpacing: 3, fontWeight: 600, fontFamily: 'system-ui,sans-serif', textTransform: 'uppercase' }}>
-          2026 FIFA World Cup
+          {T.title}
         </div>
         <div style={{ color: '#334155', fontSize: 10, letterSpacing: 2, fontFamily: 'system-ui,sans-serif', textTransform: 'uppercase' }}>
           Knockouts
@@ -223,17 +210,11 @@ export default function CircularBracket({ resolvedR32, slotW, r16W, qfW, sfW, pa
           ))}
 
           {/* Lines — back to front */}
-          {sfLines}
-          {qfLines}
-          {r16Lines}
-          {r32Lines}
+          {junctionLines}
           {flagLines}
 
           {/* Junction dots */}
-          {r32Dots}
-          {r16Dots}
-          {qfDots}
-          {sfDots}
+          {junctionDots}
 
           {/* Flag circles (foreignObject scales with SVG) */}
           {flagCircles}

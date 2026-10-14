@@ -1,10 +1,10 @@
 import { getCached, setCache } from './cache';
 import { findEntry } from './espn';
+import T from '../tournament';
 
-const CACHE_KEY = 'odds_api_current';
+const SPORT_KEY = T.oddsSportKey;
+const CACHE_KEY = `odds_api_${SPORT_KEY}`;
 const TTL_ODDS = 15 * 60 * 1000;
-// Verify this key at https://api.the-odds-api.com/v4/sports/ — may vary by season
-const SPORT_KEY = 'soccer_world_cup_winner';
 
 // Returns { teamName: avgDecimalOdds } from UK bookmakers, averaged across bookmakers.
 // Returns null if API key not set, fetch fails, or no data found.

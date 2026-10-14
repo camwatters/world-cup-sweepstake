@@ -1,8 +1,9 @@
-import { draw } from "../data/draw";
+import T from "../tournament";
 import { getCached, setCache, TTL } from "./cache";
 
-export const ESPN_STANDINGS = "https://site.api.espn.com/apis/v2/sports/soccer/fifa.world/standings?season=2026";
-const ESPN_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard";
+const { league, season } = T.espn;
+const ESPN_STANDINGS = `https://site.api.espn.com/apis/v2/sports/soccer/${league}/standings?season=${season}`;
+const ESPN_SCOREBOARD = `https://site.api.espn.com/apis/site/v2/sports/soccer/${league}/scoreboard`;
 
 // External name variants (ESPN + The Odds API) → lowercase draw.js name
 const ALIASES = {
@@ -24,7 +25,7 @@ const ALIASES = {
   "côte d'ivoire": "ivory coast",
 };
 
-const drawByLower = Object.fromEntries(draw.map(e => [e.team.toLowerCase(), e]));
+const drawByLower = Object.fromEntries(T.draw.map(e => [e.team.toLowerCase(), e]));
 
 // Resolve an external team name to its draw.js entry, or null.
 export function findEntry(name) {
@@ -55,14 +56,25 @@ export function homeAway(event) {
 export const roundOf = event => event.season?.slug ?? "";
 export const isKnockout = event => roundOf(event) !== "" && roundOf(event) !== "group-stage";
 
-// ESPN's scoreboard rejects date ranges, so fetch every tournament day (11 Jun – 19 Jul)
-// in parallel and cache the combined list.
+export async function fetchStandings() {
+  const cacheKey = `espn_standings_${league}_${season}`;
+  const cached = getCached(cacheKey, TTL.STANDINGS);
+  if (cached) return cached;
+  const res = await fetch(ESPN_STANDINGS);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const standings = await res.json();
+  setCache(cacheKey, standings);
+  return standings;
+}
+
+// ESPN's scoreboard rejects date ranges, so fetch every tournament day in parallel and
+// cache the combined list.
 export async function fetchTournamentEvents() {
-  const cacheKey = "espn_events_v1";
+  const cacheKey = `espn_events_${league}_${season}`;
   const cached = getCached(cacheKey, TTL.SCORES);
   if (cached) return cached;
   const days = [];
-  for (let d = Date.UTC(2026, 5, 11); d <= Date.UTC(2026, 6, 19); d += 864e5) {
+  for (let d = Date.parse(T.start); d <= Date.parse(T.end); d += 864e5) {
     days.push(new Date(d).toISOString().slice(0, 10).replace(/-/g, ""));
   }
   const responses = await Promise.all(days.map(async day => {

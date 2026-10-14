@@ -3,6 +3,7 @@ import { draw } from "../data/draw";
 import Flag from "../components/Flag";
 import { runSimulations, GROUPS, GROUP_SCHEDULE, R32 } from "../utils/monteCarlo";
 import { getCached, setCache, TTL } from "../utils/cache";
+import { findEntry, getStats, standingsGroups, homeAway, roundOf, isKnockout, fetchTournamentEvents, ESPN_STANDINGS } from "../utils/espn";
 import { fetchCurrentOdds, getCachedOddsAge } from "../utils/oddsApi";
 import styles from "./PrizesPage.module.css";
 
@@ -32,88 +33,48 @@ const PRIZE_LABELS = {
 
 const TOTAL = PRIZES.reduce((s, p) => s + p.amount, 0);
 
-const ESPN_STANDINGS = "https://site.api.espn.com/apis/v2/sports/soccer/fifa.world/standings?season=2026";
 const CACHE_KEY = "espn_standings";
 
-// R32 starts June 28 (group stage ended June 26), so this date window contains
-// only knockout events — no group stage filtering needed. Ending +14 days
-// ensures the window always covers the latest completed results.
-function knockoutScoreboardUrl() {
-  const fmt = (d) => new Date(d).toISOString().slice(0, 10).replace(/-/g, "");
-  return `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?limit=100&dates=20260628-${fmt(Date.now() + 14 * 864e5)}`;
-}
-
-// Fetch knockout events from the single knockout-only scoreboard window, cached per-day.
-async function fetchKnockoutEvents() {
-  const cacheKey = `espn_ko_v8_${new Date().toISOString().slice(0, 10)}`;
-  const cached = getCached(cacheKey, TTL.SCORES);
+async function fetchStandings() {
+  const cached = getCached(CACHE_KEY, TTL.STANDINGS);
   if (cached) return cached;
-  const res = await fetch(knockoutScoreboardUrl());
-  if (!res.ok) return [];
-  const data = await res.json();
-  const events = data.events ?? [];
-  setCache(cacheKey, events);
-  return events;
+  const res = await fetch(ESPN_STANDINGS);
+  if (!res.ok) return null;
+  const s = await res.json();
+  setCache(CACHE_KEY, s);
+  return s;
 }
 
-// Builds pair→winner map from completed knockout events — no round-name parsing needed.
-// Key: sorted "teama|teamb" (lowercase internal names). Value: winner (lowercase internal name).
+const pairKey = (a, b) => [a.toLowerCase(), b.toLowerCase()].sort().join("|");
+
+// Completed knockout result → { pairKey, winner } (lowercase draw names), or null.
+function parseResult(event) {
+  if (!isKnockout(event)) return null;
+  const [home, away] = homeAway(event);
+  if (!home || !away) return null;
+  // ESPN pre-populates future bracket slots as soon as a team advances, so skip anything
+  // not started or dated in the future. ESPN does NOT set status.type.completed on
+  // knockout events, so the winner flag is the completion signal (safe for ET/pens).
+  if (event.competitions?.[0]?.status?.type?.state === "pre") return null;
+  const eventMs = Date.parse(event.date);
+  if (isNaN(eventMs) || eventMs > Date.now()) return null;
+  const winnerDisplay = home.winner === true ? home.team?.displayName
+    : away.winner === true ? away.team?.displayName
+    : null;
+  const homeR = findEntry(home.team?.displayName)?.team;
+  const awayR = findEntry(away.team?.displayName)?.team;
+  const winR  = findEntry(winnerDisplay)?.team;
+  if (!homeR || !awayR || !winR) return null;
+  return { pairKey: pairKey(homeR, awayR), winner: winR.toLowerCase() };
+}
+
+// Pair→winner map from completed knockout events. Key: sorted "teama|teamb". Value: winner.
 function buildKnockoutResults(events) {
-  const results = {};
-  for (const event of events ?? []) {
-    const comp = event.competitions?.[0];
-    const home = comp?.competitors?.find(c => c.homeAway === "home");
-    const away = comp?.competitors?.find(c => c.homeAway === "away");
-    if (!home || !away) continue;
-    // Skip pre-populated future bracket slots — ESPN fills these as soon as a team
-    // advances, but the match hasn't happened. Guards in priority order:
-    // 1. winner flag absent → not finished (checked later via winnerDisplay)
-    // 2. state === "pre" → ESPN explicitly says not started
-    // 3. date in future or unparseable → clearly hasn't happened yet
-    // Note: ESPN does NOT set status.type.completed on knockout events, so we
-    // cannot use that flag here (it would drop every real result).
-    const state = comp?.status?.type?.state;
-    if (state === "pre") continue;
-    const eventMs = Date.parse(event.date);
-    if (isNaN(eventMs) || eventMs > Date.now()) continue;
-    // Primary guard: skip if ESPN labels this as group stage (handles name-variant edge cases).
-    const groupName = (comp?.groups?.name ?? "").toLowerCase().replace(/[\s-]/g, "");
-    if (groupName.startsWith("group")) continue;
-    // Winner flag only — safe for matches that go to ET/pens (level at 90 mins).
-    const winnerDisplay = home.winner === true ? home.team?.displayName
-      : away.winner === true ? away.team?.displayName
-      : null;
-    if (!winnerDisplay) continue; // not finished yet
-    const homeR = resolveEspnTeam(home.team?.displayName ?? "");
-    const awayR = resolveEspnTeam(away.team?.displayName ?? "");
-    const winR  = resolveEspnTeam(winnerDisplay);
-    if (!homeR || !awayR || !winR) continue;
-    // Secondary guard: skip within-group pairs that ESPN didn't label (team membership check).
-    const pairKey = [homeR.toLowerCase(), awayR.toLowerCase()].sort().join("|");
-    if (KO_GROUP_PAIRS.has(pairKey)) continue;
-    results[pairKey] = winR.toLowerCase();
-  }
-  return results;
+  return Object.fromEntries(events.map(parseResult).filter(Boolean).map(r => [r.pairKey, r.winner]));
 }
 
-// Classify each knockout result by round using win-count heuristic:
-// R32 winner appears in values once (loser never), R16 winner twice, etc.
-// For pair [A,B]: min(winCount[A], winCount[B]) → 0=R32, 1=R16, 2=QF, 3=SF
-function computeRoundWinners(knockoutResults) {
-  const winCount = {};
-  for (const w of Object.values(knockoutResults)) {
-    winCount[w] = (winCount[w] ?? 0) + 1;
-  }
-  const r32 = new Set(), r16 = new Set(), qf = new Set(), sf = new Set();
-  for (const [pairKey, winner] of Object.entries(knockoutResults)) {
-    const [a, b] = pairKey.split('|');
-    const minWins = Math.min(winCount[a] ?? 0, winCount[b] ?? 0);
-    if      (minWins === 0) r32.add(winner);
-    else if (minWins === 1) r16.add(winner);
-    else if (minWins === 2) qf.add(winner);
-    else if (minWins === 3) sf.add(winner);
-  }
-  return { r32, r16, qf, sf };
+function roundWinners(events, round) {
+  return events.filter(e => roundOf(e) === round).map(parseResult).filter(Boolean).map(r => r.winner);
 }
 
 // Resolve the real opponent for each of the 8 "Best 3rd" R32 wildcard slots directly from
@@ -122,8 +83,10 @@ function computeRoundWinners(knockoutResults) {
 // allocation table — verified against live standings it mismatches 5 of 8 wildcard slots
 // once groups are complete, which then simulates matches that never happened (e.g. pairing
 // two already-eliminated teams against each other) in every single simulation run.
-// events: raw knockout-window events, any round, completed or scheduled.
 function computeThirdPlaceOverrides(events, groupOverrides) {
+  const r32Teams = events
+    .filter(e => roundOf(e) === "round-of-32")
+    .map(e => homeAway(e).map(c => findEntry(c?.team?.displayName)?.team));
   const overrides = {};
   R32.forEach((slots, i) => {
     const thirdIdx = slots.findIndex(s => s.t === '3');
@@ -131,93 +94,40 @@ function computeThirdPlaceOverrides(events, groupOverrides) {
     const fixed = slots[1 - thirdIdx];
     const grp = groupOverrides[fixed.g];
     if (!grp?.complete) return;
-    const certainName = fixed.t === 'w' ? grp.teams[0]?.teamName : grp.teams[1]?.teamName;
-    if (!certainName) return;
-    // The earliest event featuring this team is always their R32 match — R16+ fixtures
-    // for the same team can only be published once they've already won R32.
-    let earliest = null;
-    for (const event of events) {
-      const comp = event.competitions?.[0];
-      const home = comp?.competitors?.find(c => c.homeAway === "home");
-      const away = comp?.competitors?.find(c => c.homeAway === "away");
-      if (!home || !away) continue;
-      const homeR = resolveEspnTeam(home.team?.displayName ?? "");
-      const awayR = resolveEspnTeam(away.team?.displayName ?? "");
-      if (!homeR || !awayR) continue;
-      const pairKey = [homeR.toLowerCase(), awayR.toLowerCase()].sort().join("|");
-      if (KO_GROUP_PAIRS.has(pairKey)) continue;
-      const opp = homeR === certainName ? awayR : awayR === certainName ? homeR : null;
-      if (!opp) continue;
-      const ms = Date.parse(event.date);
-      if (isNaN(ms)) continue;
-      if (!earliest || ms < earliest.ms) earliest = { ms, opp };
-    }
-    if (earliest) overrides[i] = earliest.opp;
+    const certainName = (fixed.t === 'w' ? grp.teams[0] : grp.teams[1])?.teamName;
+    const match = certainName && r32Teams.find(pair => pair.includes(certainName));
+    const opp = match?.find(t => t !== certainName);
+    if (opp) overrides[i] = opp;
   });
   return overrides;
 }
 
-function computeWorstKnockoutTeam(winners) {
+// Draw entry with the longest pre-tournament odds among the given team names.
+function worstByOdds(names) {
   let worst = null;
-  for (const teamLower of winners) {
-    const entry = drawLookup[teamLower];
+  for (const name of names) {
+    const entry = findEntry(name);
     if (entry && (!worst || entry.odds > worst.odds)) worst = entry;
   }
   return worst;
 }
 
-const ESPN_ALIASES = {
-  "czechia": "czech republic",
-  "bosnia-herzegovina": "bosnia and herzegovina",
-  "türkiye": "turkey",
-  "united states": "usa",
-  "curaçao": "curacao",
-  "congo dr": "dr congo",
-  "korea republic": "south korea",
-  "cabo verde": "cape verde",
-};
-
-const drawLookup = {};
-draw.forEach(e => { drawLookup[e.team.toLowerCase()] = e; });
-
-// Within-group pairs: sorted lowercase names joined by |. Used to filter group
-// stage games out of the knockout scoreboard (group finals overlap June 28).
-const KO_GROUP_PAIRS = new Set();
-Object.values(GROUPS).forEach(names => {
-  for (let i = 0; i < names.length; i++)
-    for (let j = i + 1; j < names.length; j++)
-      KO_GROUP_PAIRS.add([names[i].toLowerCase(), names[j].toLowerCase()].sort().join('|'));
-});
-
-function resolveEspnTeam(espnName) {
-  const lower = espnName.toLowerCase();
-  const key = ESPN_ALIASES[lower] ?? lower;
-  if (drawLookup[key]) return drawLookup[key].team;
-  for (const [k, v] of Object.entries(drawLookup)) {
-    if (key.includes(k) || k.includes(key)) return v.team;
-  }
-  return null;
-}
-
 function computeWorstTeam(standings) {
-  const groups = standings?.children ?? standings?.standings?.groups ?? [];
   let worst = null;
-  for (const group of groups) {
-    const entries = group.standings?.entries ?? [];
-    const getStats = e => Object.fromEntries((e.stats ?? []).map(s => [s.name, s.value]));
-    for (const entry of entries) {
+  for (const group of standingsGroups(standings)) {
+    for (const entry of group.standings?.entries ?? []) {
       const st = getStats(entry);
       if ((st.gamesPlayed ?? 0) === 0) continue;
-      const teamName = resolveEspnTeam(entry.team?.displayName ?? "");
-      if (!teamName) continue;
+      const drawEntry = findEntry(entry.team?.displayName);
+      if (!drawEntry) continue;
       const pts = st.points ?? 0;
       const gd = st.pointDifferential ?? 0;
       if (!worst || pts < worst.pts || (pts === worst.pts && gd < worst.gd)) {
-        worst = { teamName, pts, gd };
+        worst = { drawEntry, pts, gd };
       }
     }
   }
-  return worst ? (drawLookup[worst.teamName.toLowerCase()] ?? null) : null;
+  return worst?.drawEntry ?? null;
 }
 
 // A team is guaranteed top 2 if at most 1 other team can possibly reach or
@@ -225,10 +135,8 @@ function computeWorstTeam(standings) {
 // Conservative: doesn't use H2H, so may miss borderline cases, but never
 // shows a team as qualified when they aren't.
 function computeGuaranteedQualifiers(standings) {
-  const groups = standings?.children ?? standings?.standings?.groups ?? [];
-  const getStats = e => Object.fromEntries((e.stats ?? []).map(s => [s.name, s.value]));
   const guaranteed = new Set();
-  for (const group of groups) {
+  for (const group of standingsGroups(standings)) {
     const entries = group.standings?.entries ?? [];
     if (entries.length < 4) continue;
     for (const entry of entries) {
@@ -241,7 +149,7 @@ function computeGuaranteedQualifiers(standings) {
         return (ost.points ?? 0) + 3 * (3 - (ost.gamesPlayed ?? 0)) >= myPts;
       }).length;
       if (canBeat <= 1) {
-        const teamName = resolveEspnTeam(entry.team?.displayName ?? "");
+        const teamName = findEntry(entry.team?.displayName)?.team;
         if (teamName) guaranteed.add(teamName);
       }
     }
@@ -250,27 +158,14 @@ function computeGuaranteedQualifiers(standings) {
 }
 
 function isGroupStageComplete(standings) {
-  const groups = standings?.children ?? standings?.standings?.groups ?? [];
-  const getStats = e => Object.fromEntries((e.stats ?? []).map(s => [s.name, s.value]));
   let done = 0;
-  for (const group of groups) {
+  for (const group of standingsGroups(standings)) {
     const entries = group.standings?.entries ?? [];
     if (!entries.length) continue;
     const maxPlayed = Math.max(...entries.map(e => getStats(e).gamesPlayed ?? 0));
     if (maxPlayed >= 3) done++;
   }
   return done >= 12;
-}
-
-function computeWorstQualified(standings) {
-  const guaranteed = computeGuaranteedQualifiers(standings);
-  let worst = null;
-  for (const teamName of guaranteed) {
-    const drawEntry = drawLookup[teamName.toLowerCase()];
-    if (!drawEntry) continue;
-    if (!worst || drawEntry.odds > worst.odds) worst = drawEntry;
-  }
-  return worst;
 }
 
 // Uses GROUP_SCHEDULE + current standings to infer which teams are H2H-locked out of top 2.
@@ -317,12 +212,10 @@ function computeEliminatedTeams(overrideTeams, letter, matchdaysPlayed) {
 
 function buildGroupOverrides(standings) {
   const overrides = {};
-  const groups = standings?.children ?? standings?.standings?.groups ?? [];
-  for (const group of groups) {
+  for (const group of standingsGroups(standings)) {
     const letter = (group.name ?? "").replace("Group ", "").trim();
     if (!letter || letter.length > 1) continue;
     const entries = group.standings?.entries ?? [];
-    const getStats = e => Object.fromEntries((e.stats ?? []).map(s => [s.name, s.value]));
     const gamesPlayedArr = entries.map(e => getStats(e).gamesPlayed ?? 0);
     const minPlayed = Math.min(...gamesPlayedArr);
     const maxPlayed = Math.max(...gamesPlayedArr);
@@ -339,7 +232,7 @@ function buildGroupOverrides(standings) {
       return (sb.points??0)-(sa.points??0) || (sb.pointDifferential??0)-(sa.pointDifferential??0) || (sb.pointsFor??0)-(sa.pointsFor??0);
     });
     const teams = sorted.map(e => {
-      const teamName = resolveEspnTeam(e.team?.displayName ?? "");
+      const teamName = findEntry(e.team?.displayName)?.team;
       if (!teamName) return null;
       const st = getStats(e);
       return { teamName, pts: st.points ?? 0, gd: st.pointDifferential ?? 0, gf: st.pointsFor ?? 0 };
@@ -351,7 +244,7 @@ function buildGroupOverrides(standings) {
 }
 
 const byPerson = {};
-draw.forEach(e => {
+[...draw].sort((a, b) => a.odds - b.odds).forEach(e => {
   const k = e.person ?? "Unclaimed";
   if (!byPerson[k]) byPerson[k] = [];
   byPerson[k].push(e);
@@ -361,104 +254,69 @@ draw.forEach(e => {
 const MANUAL_CURRENT = {
   gott: { entry: draw.find(t => t.team === "Cape Verde"), quality: 0.9, perGameProb: 0.03 },
 };
+if (!MANUAL_CURRENT.gott.entry) console.warn("MANUAL_CURRENT.gott: team not found in draw");
+
+// Loads standings + knockout results: the simulation inputs plus the current prize holders.
+async function loadLiveData() {
+  const live = { groupOverrides: {}, knockoutResults: {}, thirdPlaceOverrides: {}, holders: {} };
+  try {
+    const s = await fetchStandings();
+    if (s) {
+      const groupsComplete = isGroupStageComplete(s);
+      const worstTeam = computeWorstTeam(s);
+      const worstQualified = worstByOdds(computeGuaranteedQualifiers(s));
+      live.holders.worstOverall = worstTeam      ? { ...worstTeam,      confirmed: groupsComplete } : null;
+      live.holders.worstGroup   = worstQualified ? { ...worstQualified, confirmed: groupsComplete } : null;
+      live.groupOverrides = buildGroupOverrides(s);
+    }
+  } catch { /* standings unavailable — simulate all groups */ }
+  try {
+    const events = await fetchTournamentEvents();
+    live.knockoutResults = buildKnockoutResults(events);
+    const r32 = roundWinners(events, "round-of-32");
+    const r16 = roundWinners(events, "round-of-16");
+    const worstR32 = worstByOdds(r32);
+    const worstR16 = worstByOdds(r16);
+    live.holders.worstL16 = worstR32 ? { ...worstR32, confirmed: r32.length >= 16 } : null;
+    live.holders.worstQF  = worstR16 ? { ...worstR16, confirmed: r16.length >= 8  } : null;
+    live.thirdPlaceOverrides = computeThirdPlaceOverrides(events, live.groupOverrides);
+  } catch { /* scoreboard unavailable — simulate all knockouts */ }
+  return live;
+}
 
 export default function PrizesPage() {
   const [results, setResults]       = useState(null);
   const [running, setRunning]       = useState(false);
-  const [lockedCount, setLockedCount] = useState(null);
-  const [r32LockedCount, setR32LockedCount] = useState(0);
   const [expanded, setExpanded]     = useState(null);
-  const [worstTeam, setWorstTeam]           = useState(null);
-  const [worstQualified, setWorstQualified] = useState(null);
-  const [worstL16Entry, setWorstL16Entry]   = useState(null);
-  const [worstQFEntry, setWorstQFEntry]     = useState(null);
-  const [groupsComplete, setGroupsComplete] = useState(false);
-  const [koResultsCache, setKoResultsCache] = useState({});
-  const [standingsRef, setStandingsRef] = useState(null);
+  const [live, setLive]             = useState(null);
   const [currentOdds, setCurrentOdds] = useState(null);
   const [oddsAge, setOddsAge]       = useState(null);
 
   useEffect(() => {
-    async function load() {
-      try {
-        let s = getCached(CACHE_KEY, TTL.STANDINGS);
-        if (!s) {
-          const res = await fetch(ESPN_STANDINGS);
-          if (res.ok) { s = await res.json(); setCache(CACHE_KEY, s); }
-        }
-        if (s) {
-          setStandingsRef(s);
-          setWorstTeam(computeWorstTeam(s));
-          setWorstQualified(computeWorstQualified(s));
-          setGroupsComplete(isGroupStageComplete(s));
-        }
-      } catch {}
-      try {
-        const koEvents = await fetchKnockoutEvents();
-        if (koEvents.length) {
-          const koResults = buildKnockoutResults(koEvents);
-          setKoResultsCache(koResults);
-          const { r32, r16 } = computeRoundWinners(koResults);
-          const worstR32 = r32.size > 0 ? computeWorstKnockoutTeam(r32) : null;
-          const worstR16 = r16.size > 0 ? computeWorstKnockoutTeam(r16) : null;
-          setWorstL16Entry(worstR32 ? { ...worstR32, confirmed: r32.size >= 16 } : null);
-          setWorstQFEntry(worstR16  ? { ...worstR16,  confirmed: r16.size >= 8  } : null);
-        }
-      } catch {}
-      try {
-        const odds = await fetchCurrentOdds();
-        setCurrentOdds(odds);
-        setOddsAge(getCachedOddsAge());
-      } catch {}
-    }
-    load();
+    loadLiveData().then(setLive);
+    fetchCurrentOdds().then(odds => {
+      setCurrentOdds(odds);
+      setOddsAge(getCachedOddsAge());
+    }).catch(() => {});
   }, []);
 
-  const currently = {
-    gott:         MANUAL_CURRENT.gott?.entry,
-    worstOverall: worstTeam      ? { ...worstTeam,      confirmed: groupsComplete } : null,
-    worstGroup:   worstQualified ? { ...worstQualified, confirmed: groupsComplete } : null,
-    worstL16:     worstL16Entry,
-    worstQF:      worstQFEntry,
-  };
+  const currently = { gott: MANUAL_CURRENT.gott.entry, ...live?.holders };
+  const lockedCount = live ? Object.keys(live.groupOverrides).length : 0;
+  const r32LockedCount = live ? Object.keys(live.knockoutResults).length : 0;
 
   async function runSim() {
     setRunning(true);
     setExpanded(null);
-    let groupOverrides = {};
-    let knockoutResults = koResultsCache;
-    let thirdPlaceOverrides = {};
-    try {
-      let s = standingsRef ?? getCached(CACHE_KEY, TTL.STANDINGS);
-      if (!s) {
-        const res = await fetch(ESPN_STANDINGS);
-        if (res.ok) { s = await res.json(); setCache(CACHE_KEY, s); }
-      }
-      if (s) {
-        groupOverrides = buildGroupOverrides(s);
-        setLockedCount(Object.keys(groupOverrides).length);
-      }
-    } catch {}
-    try {
-      const koEvents = await fetchKnockoutEvents();
-      if (koEvents.length) {
-        knockoutResults = buildKnockoutResults(koEvents);
-        setKoResultsCache(knockoutResults);
-        const { r32, r16 } = computeRoundWinners(knockoutResults);
-        const worstR32 = r32.size > 0 ? computeWorstKnockoutTeam(r32) : null;
-        const worstR16 = r16.size > 0 ? computeWorstKnockoutTeam(r16) : null;
-        setWorstL16Entry(worstR32 ? { ...worstR32, confirmed: r32.size >= 16 } : null);
-        setWorstQFEntry(worstR16  ? { ...worstR16,  confirmed: r16.size >= 8  } : null);
-        setR32LockedCount(Object.keys(knockoutResults).length);
-        thirdPlaceOverrides = computeThirdPlaceOverrides(koEvents, groupOverrides);
-      }
-    } catch {}
+    const fresh = await loadLiveData();
+    setLive(fresh);
     setTimeout(() => {
       const gottEntry = MANUAL_CURRENT.gott;
-      const gottConfig = gottEntry ? { teamName: gottEntry.entry.team, quality: gottEntry.quality, perGameProb: gottEntry.perGameProb } : null;
-      const result = runSimulations(10000, groupOverrides, gottConfig, currentOdds, knockoutResults, thirdPlaceOverrides);
-      setResults(result);
-      setRunning(false);
+      const gottConfig = gottEntry ? { teamName: gottEntry.entry?.team, quality: gottEntry.quality, perGameProb: gottEntry.perGameProb } : null;
+      try {
+        setResults(runSimulations(10000, fresh.groupOverrides, gottConfig, currentOdds, fresh.knockoutResults, fresh.thirdPlaceOverrides));
+      } finally {
+        setRunning(false);
+      }
     }, 10);
   }
 
@@ -519,7 +377,7 @@ export default function PrizesPage() {
 
         {ranked && (
           <>
-            {lockedCount !== null && lockedCount > 0 && (
+            {lockedCount > 0 && (
               <div className={styles.evMeta}>
                 <span className={styles.evLocked}>Live standings used for {lockedCount}/12 groups</span>
               </div>
@@ -531,7 +389,7 @@ export default function PrizesPage() {
             )}
             <div className={styles.evTable}>
               {ranked.map(({ rank, name, ev }) => {
-                const teams = (byPerson[name] ?? []).sort((a,b) => a.odds-b.odds);
+                const teams = byPerson[name] ?? [];
                 const above = ev >= fairShare;
                 const isOpen = expanded === name;
                 const breakdown = results.personBreakdown[name] ?? {};
@@ -580,7 +438,7 @@ export default function PrizesPage() {
                                   <span className={styles.evBreakdownSplit}>
                                     ({splitEntries.map(([t, v], i) => (
                                       <span key={t}>
-                                        <Flag code={drawLookup[t.toLowerCase()]?.flag} size={11} />
+                                        <Flag code={findEntry(t)?.flag} size={11} />
                                         £{v.toFixed(2)}
                                         {i < splitEntries.length - 1 ? " · " : ""}
                                       </span>

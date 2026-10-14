@@ -95,28 +95,6 @@ function simPartialGroup(names, overrideTeams, matchdaysPlayed, gottPairs, tm, e
   return idx.map(i => ({ team: teams[i], pts: pts[i], gd: gd[i], gf: gf[i] }));
 }
 
-function simGroup(names, gottPairs, tm) {
-  const teams = names.map(n => tm[n]);
-  const pts = [0,0,0,0], gd = [0,0,0,0], gf = [0,0,0,0];
-  for (let i = 0; i < 4; i++) {
-    for (let j = i + 1; j < 4; j++) {
-      gottPairs.push([teams[i], teams[j]]);
-      const iWins = Math.random() < teams[i].p / (teams[i].p + teams[j].p);
-      // Sample realistic goal counts; force winner to score more
-      let gi = poisson(1.3), gj = poisson(1.3);
-      if (iWins && gi <= gj) gi = gj + 1;
-      else if (!iWins && gj <= gi) gj = gi + 1;
-      pts[iWins ? i : j] += 3;
-      gf[i] += gi; gf[j] += gj;
-      gd[i] += gi - gj; gd[j] += gj - gi;
-    }
-  }
-  const idx = [0,1,2,3].sort((a,b) =>
-    (pts[b]-pts[a]) || (gd[b]-gd[a]) || (gf[b]-gf[a]) || (Math.random()-0.5)
-  );
-  return idx.map(i => ({ team: teams[i], pts: pts[i], gd: gd[i], gf: gf[i] }));
-}
-
 function assignThirds(best8) {
   const slots = [];
   R32.forEach((m, i) => m.forEach((slot) => { if (slot.t === '3') slots.push({ i, e: slot.e }); }));
@@ -150,9 +128,6 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
   const useThirdOverrides = Object.keys(thirdPlaceOverrides).length === 8;
   // Build local team list: override p (probability) only, keeping odds (pre-tournament) intact
   let localTeams = TEAMS;
-  // Teams confirmed to have won at least one knockout match. Used as fallback in simRound
-  // when assignThirds() pairs a team with a different 3rd-place opponent than the real bracket —
-  // the pair key won't match knockoutResults, but we still know the confirmed winner should advance.
   // Per-team count of confirmed knockout wins (keyed lower-case). A team with >N wins has
   // already advanced past the round that requires N prior wins, so it must advance in the sim
   // even when assignThirds() pairs it with a different opponent than the real bracket.
@@ -161,11 +136,9 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     const k = (w ?? "").toLowerCase();
     koWinCount[k] = (koWinCount[k] ?? 0) + 1;
   }
-  // Teams confirmed eliminated: appear in a knockout result pair but not as the winner.
-  // Used to prevent confirmed losers from advancing in mismatched bracket pairings
-  // (e.g. Germany lost R16 but assignThirds() pairs Germany with a 0-win sim opponent —
-  // neither win-count condition fires so Germany gets randomly simulated without this guard).
-  // Teams confirmed eliminated after winning at least one knockout match.
+  // Teams confirmed eliminated after winning at least one knockout match. Prevents confirmed
+  // losers advancing in mismatched bracket pairings (e.g. Germany lost R16 but assignThirds()
+  // pairs Germany with a 0-win sim opponent, so neither win-count condition fires).
   // We only mark a team as a confirmed loser if they also have confirmed wins —
   // a team with 0 wins that appears here is almost certainly an ESPN pre-population
   // artefact for an unplayed match (e.g. Colombia's R32 slot filled with a placeholder
@@ -223,7 +196,7 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
       } else if (ov) {
         sorted = simPartialGroup(names, ov.teams, ov.matchdaysPlayed, gottPairs, localTeamMap, ov.eliminatedTeams ?? new Set());
       } else {
-        sorted = simGroup(names, gottPairs, localTeamMap);
+        sorted = simPartialGroup(names, [], 0, gottPairs, localTeamMap);
       }
       grpResult[letter] = sorted;
       sorted.forEach(r => { groupRank[r.team.team] = { pts: r.pts, gd: r.gd, gf: r.gf ?? 0 }; });
@@ -246,39 +219,39 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
         : thirdSlotTeam(i),
     ]);
 
-    // Pair-based: looks up confirmed result by sorted "teama|teamb" key; falls back to simulation.
+    // Each returns [winner, loser]. Confirmed result by sorted "teama|teamb" key, if known.
+    const confirmedResult = (a, b) => {
+      const aLower = a.team.toLowerCase(), bLower = b.team.toLowerCase();
+      const confirmed = knockoutResults[[aLower, bLower].sort().join('|')];
+      return confirmed === aLower ? [a, b] : confirmed === bLower ? [b, a] : null;
+    };
     // Win-count fallback: assignThirds() may pair a confirmed team with a different opponent than
     // the real bracket, so the exact key misses. For each round we know how many prior knockout
-    // wins a team must already have to reach it (r32:0, r16:1, qf:2, sf:3). If one team has more
-    // confirmed wins than that threshold and the other does not, the confirmed team advances —
-    // guaranteeing confirmed winners progress through every round, not just R32.
+    // wins a team must already have to reach it (r32:0, r16:1, qf:2). If one team has more
+    // confirmed wins than that and the other does not, the confirmed team advances. Likewise a
+    // confirmed loser facing a team that isn't one is eliminated.
+    const forcedResult = (a, b, prior) => {
+      const aLower = a.team.toLowerCase(), bLower = b.team.toLowerCase();
+      const aWins = koWinCount[aLower] ?? 0, bWins = koWinCount[bLower] ?? 0;
+      if (aWins > prior && bWins <= prior) return [a, b];
+      if (bWins > prior && aWins <= prior) return [b, a];
+      if (koLosers.has(aLower) && !koLosers.has(bLower)) return [b, a];
+      if (koLosers.has(bLower) && !koLosers.has(aLower)) return [a, b];
+      return null;
+    };
+    const simulated = (a, b) => {
+      gottPairs.push([a, b]);
+      const w = matchSim(a, b);
+      return [w, w === a ? b : a];
+    };
+
     function simRound(pairs, round) {
+      const prior = { r32: 0, r16: 1, qf: 2 }[round];
       return pairs.map(([a, b]) => {
         if (!a) return b; if (!b) return a;
-        const aLower = a.team.toLowerCase();
-        const bLower = b.team.toLowerCase();
-        const key = [aLower, bLower].sort().join('|');
-        const confirmed = knockoutResults[key];
-        if (confirmed === aLower) { exit[b.team] = round; return a; }
-        if (confirmed === bLower) { exit[a.team] = round; return b; }
-        // Fallback: if one team has more confirmed wins than needed to reach THIS round,
-        // and the other doesn't, advance the confirmed team (handles mismatched pairings
-        // where assignThirds() produces a different opponent than the real bracket).
-        const roundExpectedPrior = { r32: 0, r16: 1, qf: 2, sf: 3 }[round] ?? -1;
-        if (roundExpectedPrior >= 0) {
-          const aWins = koWinCount[aLower] ?? 0;
-          const bWins = koWinCount[bLower] ?? 0;
-          if (aWins > roundExpectedPrior && bWins <= roundExpectedPrior) { exit[b.team] = round; return a; }
-          if (bWins > roundExpectedPrior && aWins <= roundExpectedPrior) { exit[a.team] = round; return b; }
-          // Confirmed losers: if one team is knocked out and the other isn't, eliminate the loser.
-          // Handles the case where a confirmed-eliminated team faces a different sim opponent
-          // (mismatched bracket) and neither win-count condition fires.
-          if (koLosers.has(aLower) && !koLosers.has(bLower)) { exit[a.team] = round; return b; }
-          if (koLosers.has(bLower) && !koLosers.has(aLower)) { exit[b.team] = round; return a; }
-        }
-        gottPairs.push([a, b]);
-        const w = matchSim(a, b), l = w === a ? b : a;
-        exit[l.team] = round; return w;
+        const [w, l] = confirmedResult(a, b) ?? forcedResult(a, b, prior) ?? simulated(a, b);
+        exit[l.team] = round;
+        return w;
       });
     }
 
@@ -289,35 +262,16 @@ export function runSimulations(n = 10000, groupOverrides = {}, gottConfig = null
     SF.forEach(([a,b]) => {
       const ta = qfW[a], tb = qfW[b];
       if (!ta||!tb) { sfW.push(ta??tb); return; }
-      const key = [ta.team.toLowerCase(), tb.team.toLowerCase()].sort().join('|');
-      const confirmed = knockoutResults[key];
-      if (confirmed === ta.team.toLowerCase()) { exit[tb.team]='sf'; sfW.push(ta); sfL.push(tb); return; }
-      if (confirmed === tb.team.toLowerCase()) { exit[ta.team]='sf'; sfW.push(tb); sfL.push(ta); return; }
-      gottPairs.push([ta, tb]);
-      const w = matchSim(ta,tb), l = w===ta?tb:ta;
-      exit[l.team]='sf'; sfW.push(w); sfL.push(l);
+      const [w, l] = confirmedResult(ta, tb) ?? simulated(ta, tb);
+      exit[l.team] = 'sf'; sfW.push(w); sfL.push(l);
     });
     if (sfL.length===2) {
-      const key = [sfL[0].team.toLowerCase(), sfL[1].team.toLowerCase()].sort().join('|');
-      const confirmed = knockoutResults[key];
-      if (confirmed === sfL[0].team.toLowerCase()) { exit[sfL[0].team]='3rd'; exit[sfL[1].team]='4th'; }
-      else if (confirmed === sfL[1].team.toLowerCase()) { exit[sfL[1].team]='3rd'; exit[sfL[0].team]='4th'; }
-      else {
-        gottPairs.push([sfL[0], sfL[1]]);
-        const w=matchSim(sfL[0],sfL[1]), l=w===sfL[0]?sfL[1]:sfL[0];
-        exit[w.team]='3rd'; exit[l.team]='4th';
-      }
+      const [w, l] = confirmedResult(sfL[0], sfL[1]) ?? simulated(sfL[0], sfL[1]);
+      exit[w.team] = '3rd'; exit[l.team] = '4th';
     }
     if (sfW[0]&&sfW[1]) {
-      const key = [sfW[0].team.toLowerCase(), sfW[1].team.toLowerCase()].sort().join('|');
-      const confirmed = knockoutResults[key];
-      if (confirmed === sfW[0].team.toLowerCase()) { exit[sfW[1].team]='final'; exit[sfW[0].team]='winner'; }
-      else if (confirmed === sfW[1].team.toLowerCase()) { exit[sfW[0].team]='final'; exit[sfW[1].team]='winner'; }
-      else {
-        gottPairs.push([sfW[0], sfW[1]]);
-        const w=matchSim(sfW[0],sfW[1]), l=w===sfW[0]?sfW[1]:sfW[0];
-        exit[w.team]='winner'; exit[l.team]='final';
-      }
+      const [w, l] = confirmedResult(sfW[0], sfW[1]) ?? simulated(sfW[0], sfW[1]);
+      exit[w.team] = 'winner'; exit[l.team] = 'final';
     }
 
     const add = (team, key, amt) => {

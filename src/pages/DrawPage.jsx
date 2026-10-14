@@ -1,10 +1,8 @@
 import { useState, useEffect } from "react";
-import { draw as rawDraw } from "../data/draw";
+import { draw } from "../data/draw";
 import Flag from "../components/Flag";
 import { fetchCurrentOdds, getCachedOddsAge } from "../utils/oddsApi";
 import styles from "./DrawPage.module.css";
-
-const draw = rawDraw;
 
 const TIERS = [
   { label: "Favourites",  max: 10 },

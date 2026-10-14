@@ -1,10 +1,16 @@
 import T from '../tournament';
 import { EXIT_ORDER, parseSlot, pairUp, assignThirds } from './bracket';
+import { joinKey } from './espn';
 
 const rawProbs = T.draw.map(e => 1 / e.odds);
 const probSum  = rawProbs.reduce((a, b) => a + b, 0);
-const TEAMS    = T.draw.map((e, i) => ({ ...e, p: rawProbs[i] / probSum }));
+const TEAMS    = T.draw.map((e, i) => ({ ...e, key: e.team.toLowerCase(), p: rawProbs[i] / probSum }));
 const teamMap  = Object.fromEntries(TEAMS.map(t => [t.team, t]));
+
+const BRACKET    = T.bracket.map(m => [parseSlot(m.home), parseSlot(m.away)]);
+const KO_ROUNDS  = T.rounds.slice(0, -1); // every round but the final
+const SEMIS      = T.rounds.at(-2).slug;
+const EXIT_RANK  = Object.fromEntries(EXIT_ORDER.map((r, i) => [r, i]));
 
 // Knuth Poisson sampler
 function poisson(lambda) {
@@ -78,13 +84,11 @@ export function runSimulations(n = 10000, groupOverrides = {}, oddsOverrides = n
     koWinCount[k] = (koWinCount[k] ?? 0) + 1;
   }
   // Teams confirmed eliminated after winning at least one knockout match. Prevents confirmed
-  // losers advancing in mismatched bracket pairings (e.g. Germany lost R16 but assignThirds()
-  // pairs Germany with a 0-win sim opponent, so neither win-count condition fires).
-  // We only mark a team as a confirmed loser if they also have confirmed wins —
-  // a team with 0 wins that appears here is almost certainly an ESPN pre-population
-  // artefact for an unplayed match (e.g. Colombia's R32 slot filled with a placeholder
-  // result). Teams genuinely eliminated in their first knockout match are covered by
-  // the exact pair-key check in simRound and don't need this extra guard.
+  // losers advancing in mismatched bracket pairings (a team that lost a later round, paired by
+  // assignThirds() with a 0-win sim opponent, where neither win-count condition fires).
+  // A loser with 0 wins is left out: that's almost certainly ESPN pre-populating an unplayed
+  // match. Teams genuinely eliminated in their first knockout match are covered by the exact
+  // pair-key check in confirmedResult.
   const koLosers = new Set();
   for (const [pairKey, winner] of Object.entries(knockoutResults)) {
     const [a, b] = pairKey.split('|');
@@ -149,17 +153,15 @@ export function runSimulations(n = 10000, groupOverrides = {}, oddsOverrides = n
     allThirds.slice(T.bestThirds).forEach(t => { exit[t.team.team] = 'group'; });
 
     const thirdsMap = useThirdOverrides ? {} : assignThirds(allThirds.slice(0, T.bestThirds));
-    const slotTeam = (code, i) => {
-      const { pos, groups } = parseSlot(code);
+    const slotTeam = ({ pos, groups }, i) => {
       if (pos !== 3) return grpResult[groups][pos - 1].team;
       return useThirdOverrides ? (localTeamMap[thirdPlaceOverrides[i]] ?? null) : (thirdsMap[i] ?? null);
     };
 
     // Each returns [winner, loser]. Confirmed result by sorted "teama|teamb" key, if known.
     const confirmedResult = (a, b) => {
-      const aLower = a.team.toLowerCase(), bLower = b.team.toLowerCase();
-      const confirmed = knockoutResults[[aLower, bLower].sort().join('|')];
-      return confirmed === aLower ? [a, b] : confirmed === bLower ? [b, a] : null;
+      const confirmed = knockoutResults[joinKey(a.key, b.key)];
+      return confirmed === a.key ? [a, b] : confirmed === b.key ? [b, a] : null;
     };
     // Win-count fallback: assignThirds() may pair a confirmed team with a different opponent than
     // the real bracket, so the exact key misses. For each round we know how many prior knockout
@@ -167,12 +169,11 @@ export function runSimulations(n = 10000, groupOverrides = {}, oddsOverrides = n
     // confirmed wins than that and the other does not, the confirmed team advances. Likewise a
     // confirmed loser facing a team that isn't one is eliminated.
     const forcedResult = (a, b, prior) => {
-      const aLower = a.team.toLowerCase(), bLower = b.team.toLowerCase();
-      const aWins = koWinCount[aLower] ?? 0, bWins = koWinCount[bLower] ?? 0;
+      const aWins = koWinCount[a.key] ?? 0, bWins = koWinCount[b.key] ?? 0;
       if (aWins > prior && bWins <= prior) return [a, b];
       if (bWins > prior && aWins <= prior) return [b, a];
-      if (koLosers.has(aLower) && !koLosers.has(bLower)) return [b, a];
-      if (koLosers.has(bLower) && !koLosers.has(aLower)) return [a, b];
+      if (koLosers.has(a.key) && !koLosers.has(b.key)) return [b, a];
+      if (koLosers.has(b.key) && !koLosers.has(a.key)) return [a, b];
       return null;
     };
     const simulated = (a, b) => {
@@ -182,9 +183,9 @@ export function runSimulations(n = 10000, groupOverrides = {}, oddsOverrides = n
     };
 
     // Play every round but the final; each round's winners pair up for the next.
-    let pairs = T.bracket.map((m, i) => [slotTeam(m.home, i), slotTeam(m.away, i)]);
+    let pairs = BRACKET.map(([home, away], i) => [slotTeam(home, i), slotTeam(away, i)]);
     let losers = [];
-    T.rounds.slice(0, -1).forEach((round, prior) => {
+    KO_ROUNDS.forEach((round, prior) => {
       const results = pairs.map(([a, b]) => !a || !b ? [a ?? b, null]
         : confirmedResult(a, b) ?? forcedResult(a, b, prior) ?? simulated(a, b));
       results.forEach(([, l]) => { if (l) exit[l.team] = round.slug; });
@@ -211,15 +212,14 @@ export function runSimulations(n = 10000, groupOverrides = {}, oddsOverrides = n
         pt[key][team.team] = (pt[key][team.team] ?? 0) + amount;
       }
     };
-    const exitRank = t => EXIT_ORDER.indexOf(exit[t.team] ?? 'group');
     const byExit = r => localTeams.filter(t => exit[t.team]===r);
-    const reached = round => localTeams.filter(t => exitRank(t) >= EXIT_ORDER.indexOf(round));
+    const reached = round => localTeams.filter(t => EXIT_RANK[exit[t.team] ?? 'group'] >= EXIT_RANK[round]);
     // worst() uses t.odds (pre-tournament) — intentional, current odds not used here
     const worst = ts => ts.length ? ts.reduce((a,b) => b.odds>a.odds ? b : b.odds===a.odds && Math.random()<0.5 ? b : a) : null;
 
     // Player of the Tournament: a semi-finalist, weighted by strength
     const pott = () => {
-      const last4 = reached(T.rounds.at(-2).slug);
+      const last4 = reached(SEMIS);
       if (!last4.length) return null;
       let r = Math.random() * last4.reduce((s,t) => s+t.p, 0);
       for (const t of last4) { r-=t.p; if (r<=0) return t; }
@@ -250,16 +250,15 @@ export function runSimulations(n = 10000, groupOverrides = {}, oddsOverrides = n
     }, null);
 
     for (const prize of T.prizes) {
-      const team = {
-        winner:       () => byExit('winner')[0],
-        runnerUp:     () => byExit('runnerUp')[0],
-        third:        () => byExit('3rd')[0],
-        pott,
-        gott,
-        worstOverall,
-        worstReached: () => worst(reached(prize.round)),
-      }[prize.type]();
-      add(team, prize);
+      switch (prize.type) {
+        case 'winner':       add(byExit('winner')[0], prize); break;
+        case 'runnerUp':     add(byExit('runnerUp')[0], prize); break;
+        case 'third':        add(byExit('3rd')[0], prize); break;
+        case 'pott':         add(pott(), prize); break;
+        case 'gott':         add(gott(), prize); break;
+        case 'worstOverall': add(worstOverall(), prize); break;
+        case 'worstReached': add(worst(reached(prize.round)), prize); break;
+      }
     }
   }
 

@@ -5,7 +5,7 @@ const { league, season } = T.espn;
 const ESPN_STANDINGS = `https://site.api.espn.com/apis/v2/sports/soccer/${league}/standings?season=${season}`;
 const ESPN_SCOREBOARD = `https://site.api.espn.com/apis/site/v2/sports/soccer/${league}/scoreboard`;
 
-// External name variants (ESPN + The Odds API) → lowercase draw.js name
+// External name variants (ESPN + The Odds API) → lowercase draw team name
 const ALIASES = {
   "czechia": "czech republic",
   "bosnia-herzegovina": "bosnia and herzegovina",
@@ -27,7 +27,7 @@ const ALIASES = {
 
 const drawByLower = Object.fromEntries(T.draw.map(e => [e.team.toLowerCase(), e]));
 
-// Resolve an external team name to its draw.js entry, or null.
+// Resolve an external team name to its draw entry (T.draw), or null.
 export function findEntry(name) {
   if (!name) return null;
   const lower = name.toLowerCase().trim();
@@ -39,12 +39,32 @@ export function findEntry(name) {
   return null;
 }
 
+// Lowercase draw name for an external team name (the name itself if it isn't in the draw)
+export const teamKey = name => name ? (findEntry(name)?.team ?? name).toLowerCase() : null;
+// Order-independent "a|b" key for a match, from two keys / two team names
+export const joinKey = (a, b) => a < b ? `${a}|${b}` : `${b}|${a}`;
+export const pairKey = (a, b) => joinKey(teamKey(a), teamKey(b));
+
 export function getStats(entry) {
   return Object.fromEntries((entry.stats ?? []).map(s => [s.name, s.value]));
 }
 
 export function standingsGroups(standings) {
   return standings?.children ?? standings?.standings?.groups ?? [];
+}
+
+export const groupLetter = group => (group.name ?? "").replace("Group ", "").trim();
+
+// Standings entries in table order: ESPN's rank (full tiebreakers incl. head-to-head),
+// falling back to pts → GD → GF when rank is unavailable.
+export function sortEntries(entries) {
+  return [...entries].sort((a, b) => {
+    const sa = getStats(a), sb = getStats(b);
+    if (sa.rank != null && sb.rank != null && sa.rank !== sb.rank) return sa.rank - sb.rank;
+    return (sb.points ?? 0) - (sa.points ?? 0)
+      || (sb.pointDifferential ?? 0) - (sa.pointDifferential ?? 0)
+      || (sb.pointsFor ?? sb.goalsScored ?? 0) - (sa.pointsFor ?? sa.goalsScored ?? 0);
+  });
 }
 
 export function homeAway(event) {
@@ -55,10 +75,16 @@ export function homeAway(event) {
 // ESPN's round slug, e.g. "group-stage", "round-of-32", "quarterfinals", "3rd-place-match", "final"
 export const roundOf = event => event.season?.slug ?? "";
 export const isKnockout = event => roundOf(event) !== "" && roundOf(event) !== "group-stage";
+export const isFirstRound = event => roundOf(event) === T.rounds[0].slug;
+
+// Once the tournament is well over its data can't change, so it's cached under a key
+// that never expires instead of being refetched every few minutes.
+const FINAL = Date.now() > Date.parse(T.end) + 2 * 864e5;
+const cacheFor = (name, ttl) => FINAL ? [`${name}_final`, Infinity] : [name, ttl];
 
 export async function fetchStandings() {
-  const cacheKey = `espn_standings_${league}_${season}`;
-  const cached = getCached(cacheKey, TTL.STANDINGS);
+  const [cacheKey, ttl] = cacheFor(`espn_standings_${league}_${season}`, TTL.STANDINGS);
+  const cached = getCached(cacheKey, ttl);
   if (cached) return cached;
   const res = await fetch(ESPN_STANDINGS);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -70,8 +96,8 @@ export async function fetchStandings() {
 // ESPN's scoreboard rejects date ranges, so fetch every tournament day in parallel and
 // cache the combined list.
 export async function fetchTournamentEvents() {
-  const cacheKey = `espn_events_${league}_${season}`;
-  const cached = getCached(cacheKey, TTL.SCORES);
+  const [cacheKey, ttl] = cacheFor(`espn_events_${league}_${season}`, TTL.SCORES);
+  const cached = getCached(cacheKey, ttl);
   if (cached) return cached;
   const days = [];
   for (let d = Date.parse(T.start); d <= Date.parse(T.end); d += 864e5) {

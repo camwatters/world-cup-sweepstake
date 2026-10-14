@@ -2,28 +2,16 @@ import { useEffect, useState } from "react";
 import Flag from "../components/Flag";
 import CircularBracket from "../components/CircularBracket";
 import T from "../tournament";
-import { findEntry, getStats, standingsGroups, homeAway, roundOf, isKnockout, fetchTournamentEvents, fetchStandings } from "../utils/espn";
+import { findEntry, getStats, standingsGroups, groupLetter, sortEntries, homeAway, roundOf, isKnockout, isFirstRound, teamKey, pairKey, fetchTournamentEvents, fetchStandings } from "../utils/espn";
 import { GROUP_COUNT, parseSlot, slotLabel, pairUp, assignThirds } from "../utils/bracket";
 import styles from "./GroupsPage.module.css";
-
-function sortEntries(entries) {
-  return [...entries].sort((a, b) => {
-    const sa = getStats(a), sb = getStats(b);
-    // Prefer ESPN's authoritative intra-group rank (full FIFA tiebreakers incl. head-to-head);
-    // fall back to pts → GD → GF when rank is unavailable.
-    if (sa.rank != null && sb.rank != null && sa.rank !== sb.rank) return sa.rank - sb.rank;
-    return (sb.points ?? 0) - (sa.points ?? 0)
-      || (sb.pointDifferential ?? 0) - (sa.pointDifferential ?? 0)
-      || (sb.pointsFor ?? sb.goalsScored ?? 0) - (sa.pointsFor ?? sa.goalsScored ?? 0);
-  });
-}
 
 // Build per-group fixture data from group-stage events: completed results (for H2H
 // tiebreakers) and remaining fixtures. Teams are matched to groups via the standings.
 function buildFixtureData(groupEvents, groups) {
   const teamToGroup = {};
   groups.forEach((group) => {
-    const letter = (group.name ?? "").replace("Group ", "").trim();
+    const letter = groupLetter(group);
     if (!letter || letter.length > 1) return;
     (group.standings?.entries ?? []).forEach((e) => {
       const name = (e.team?.displayName ?? "").toLowerCase();
@@ -59,7 +47,7 @@ function buildFixtureData(groupEvents, groups) {
 // positions each team can finish in. Uses FIFA WC tiebreaker order:
 // pts → H2H pts → H2H GD → H2H GF → overall GD → overall GF
 function computeFeasiblePositions(groupEntry, fixtureData) {
-  const letter = (groupEntry.name ?? "").replace("Group ", "").trim();
+  const letter = groupLetter(groupEntry);
   const fixtures = fixtureData?.[letter];
   if (!fixtures) return null; // no data for this group
 
@@ -158,7 +146,7 @@ function computeQualifiers(groups, fixtureData = {}) {
   const guaranteedThirds = new Set(), guaranteedFourths = new Set();
   const guaranteedThrough = new Set();
   groups.forEach((group) => {
-    const letter = (group.name ?? "").replace("Group ", "").trim();
+    const letter = groupLetter(group);
     if (!letter) return;
     const sorted = sortEntries(group.standings?.entries ?? []);
     const allPlayed3 = sorted.length === 4 && sorted.every(e => (getStats(e).gamesPlayed ?? 0) >= 3);
@@ -512,12 +500,6 @@ function ThirdPlaceTable({ allThirds, thirdConfirmedIn, thirdConfirmedOut }) {
   );
 }
 
-function normalizeDisplayName(name) {
-  if (!name) return null;
-  const entry = findEntry(name);
-  return (entry ? entry.team : name).toLowerCase();
-}
-
 // Display order (tier) and label for each ESPN round slug
 const ROUND_INFO = Object.fromEntries([
   ...T.rounds.map((r, tier) => [r.slug, { tier, label: r.label }]),
@@ -526,7 +508,7 @@ const ROUND_INFO = Object.fromEntries([
 const roundInfo = (event) => ROUND_INFO[roundOf(event)] ?? { tier: T.rounds.length, label: "Knockout Stage" };
 const roundTitle = (r) => `${r.label} · ${r.when}`;
 
-function BracketTab({ knockoutEvents: allKnockoutEvents, qualifiers }) {
+function BracketTab({ knockoutEvents, qualifiers }) {
   const [bracketView, setBracketView] = useState('wheel');
   const thirdsByMatch = assignThirds(qualifiers.qualifiedThirds.map((t) => ({ group: t.group, team: t.name })));
   const resolvedFirst = T.bracket.map((m, i) => ({
@@ -534,12 +516,12 @@ function BracketTab({ knockoutEvents: allKnockoutEvents, qualifiers }) {
     away: resolveSlot(m.away, i, qualifiers, thirdsByMatch),
   }));
 
-  if (allKnockoutEvents.length > 0) {
+  if (knockoutEvents.length > 0) {
     // Build lookup: sorted pair key → winner display name (from completed events).
     // Use winner flag only (safe for ET/pens) — ESPN doesn't set status.type.completed
     // on knockout events so we can't use that as a completion guard.
     const matchWinners = {};
-    allKnockoutEvents.forEach((e) => {
+    knockoutEvents.forEach((e) => {
       const [home, away] = homeAway(e);
       if (!home || !away) return;
       const homeName = home.team?.displayName ?? "";
@@ -562,32 +544,30 @@ function BracketTab({ knockoutEvents: allKnockoutEvents, qualifiers }) {
         }
       }
       if (!winner) return;
-      const key = [normalizeDisplayName(homeName), normalizeDisplayName(awayName)].sort().join("|");
-      matchWinners[key] = winner;
+      matchWinners[pairKey(homeName, awayName)] = winner;
     });
 
     function pairWinner(a, b) {
       if (!a || !b) return null;
-      const key = [normalizeDisplayName(a), normalizeDisplayName(b)].sort().join("|");
-      const w = matchWinners[key];
+      const w = matchWinners[pairKey(a, b)];
       if (!w) return null;
-      const wk = normalizeDisplayName(w);
-      return wk === normalizeDisplayName(a) ? a : wk === normalizeDisplayName(b) ? b : null;
+      const wk = teamKey(w);
+      return wk === teamKey(a) ? a : wk === teamKey(b) ? b : null;
     }
 
     // Once ESPN lists the real first-round fixture, prefer it over our standings-derived guess —
     // the "Best 3rd" slot prediction can differ from the official draw's actual tiebreak
     // result, and unlike list view (which reads real events directly), the wheel bracket
     // only ever sees this resolved/guessed data.
-    const firstRoundEvents = allKnockoutEvents.filter(e => roundOf(e) === T.rounds[0].slug);
+    const firstRoundEvents = knockoutEvents.filter(isFirstRound);
     function findFirstRoundMatch(slot) {
       const certain = slot.home.guaranteed ? slot.home : slot.away.guaranteed ? slot.away : null;
       if (!certain?.team) return null;
-      const certainKey = normalizeDisplayName(certain.team);
+      const certainKey = teamKey(certain.team);
       return firstRoundEvents.find((e) => {
         const [home, away] = homeAway(e);
-        const hk = normalizeDisplayName(home?.team?.displayName ?? "");
-        const ak = normalizeDisplayName(away?.team?.displayName ?? "");
+        const hk = teamKey(home?.team?.displayName ?? "");
+        const ak = teamKey(away?.team?.displayName ?? "");
         return hk === certainKey || ak === certainKey;
       }) ?? null;
     }
@@ -598,7 +578,7 @@ function BracketTab({ knockoutEvents: allKnockoutEvents, qualifiers }) {
       const actualHome = home?.team?.displayName;
       const actualAway = away?.team?.displayName;
       if (!actualHome || !actualAway) return slot;
-      const homeMatchesGuess = normalizeDisplayName(actualHome) === normalizeDisplayName(slot.home.team);
+      const homeMatchesGuess = teamKey(actualHome) === teamKey(slot.home.team);
       return homeMatchesGuess
         ? { home: { ...slot.home, team: actualHome, guaranteed: true }, away: { ...slot.away, team: actualAway, guaranteed: true } }
         : { home: { ...slot.home, team: actualAway, guaranteed: true }, away: { ...slot.away, team: actualHome, guaranteed: true } };
@@ -609,10 +589,10 @@ function BracketTab({ knockoutEvents: allKnockoutEvents, qualifiers }) {
     while (winners.at(-1).length > 1) winners.push(pairUp(winners.at(-1)).map(([a, b]) => pairWinner(a, b)));
 
     const byRound = {};
-    allKnockoutEvents.forEach((e) => {
+    knockoutEvents.forEach((e) => {
       (byRound[roundInfo(e).label] ??= []).push(e);
     });
-    const maxTier = Math.max(...allKnockoutEvents.map((e) => roundInfo(e).tier), -1);
+    const maxTier = Math.max(...knockoutEvents.map((e) => roundInfo(e).tier), -1);
 
     // bracketSlot: produce display info for a team slot
     function bracketSlot(name, fallback) {

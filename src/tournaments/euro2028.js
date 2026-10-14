@@ -24,13 +24,13 @@ export default {
   },
   bestThirds: 4,
   // UEFA's allocation: which group's third plays each group winner, keyed by the four
-  // groups whose thirds qualify. Value letters are the opponents of [1B, 1C, 1E, 1F].
+  // groups whose thirds qualify. Value letters are the opponents of the winners that face a
+  // third, in alphabetical order of winner (here 1B, 1C, 1E, 1F).
   thirdPlaceTable: {
     ABCD: "ADBC", ABCE: "AEBC", ABCF: "AFBC", ABDE: "DEAB", ABDF: "DFAB",
     ABEF: "EFBA", ACDE: "EDCA", ACDF: "FDCA", ACEF: "EFCA", ADEF: "EFDA",
     BCDE: "EDBC", BCDF: "FDCB", BCEF: "FECB", BDEF: "FEDB", CDEF: "FEDC",
   },
-  thirdPlaceTableWinners: "BCEF",
 
   rounds: [
     { slug: "round-of-16",   label: "Round of 16",    when: "24–27 Jun" },

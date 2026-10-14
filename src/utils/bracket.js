@@ -19,13 +19,14 @@ export function slotLabel(code) {
 // Winners of one round paired into the next: [a, b, c, d] → [[a, b], [c, d]]
 export const pairUp = arr => Array.from({ length: arr.length / 2 }, (_, k) => [arr[2 * k], arr[2 * k + 1]]);
 
-// The bracket matches with a best-third slot, and the group of the winner they face.
-const THIRD_SLOTS = T.bracket.flatMap((m, i) => {
+// The bracket matches with a best-third slot: eligible groups and the (parsed) slot they face.
+export const THIRD_SLOTS = T.bracket.flatMap((m, i) => {
   const third = [m.home, m.away].find(c => c[0] === "3");
   if (!third) return [];
-  const opponent = third === m.home ? m.away : m.home;
-  return [{ i, eligible: third.slice(1), opponentGroup: opponent.slice(1) }];
+  return [{ i, eligible: third.slice(1), opponent: parseSlot(third === m.home ? m.away : m.home) }];
 });
+// Allocation-table columns: the group winners facing a third, alphabetically (e.g. "BCEF")
+const TABLE_COLUMNS = THIRD_SLOTS.map(s => s.opponent.groups).sort().join("");
 
 // Assign qualifying third-placed teams to bracket matches → { matchIndex: team }.
 // thirds: [{ group, team }] in ranking order. Uses the tournament's official allocation
@@ -37,7 +38,7 @@ export function assignThirds(thirds) {
   if (row) {
     const byGroup = Object.fromEntries(thirds.map(t => [t.group, t.team]));
     return Object.fromEntries(THIRD_SLOTS.map(s =>
-      [s.i, byGroup[row[T.thirdPlaceTableWinners.indexOf(s.opponentGroup)]]]));
+      [s.i, byGroup[row[TABLE_COLUMNS.indexOf(s.opponent.groups)]]]));
   }
 
   const slotToTeam = new Array(THIRD_SLOTS.length).fill(-1);
